@@ -6,6 +6,7 @@ import "@tensorflow/tfjs-backend-cpu";
 // Using MoveNet's built-in tracking instead of custom SORT
 import { POSE_CONNECTIONS, KEYPOINT_NAMES } from "./const";
 import { distance, angle, bboxFromKeypoints } from "./utils";
+import { poseAnalyzer } from "./poseAnalyzer";
 
 export default function FightTrainer() {
   const videoRef = useRef(null);
@@ -36,6 +37,7 @@ export default function FightTrainer() {
   const [videoPausedForRoleSelection, setVideoPausedForRoleSelection] =
     useState(false);
   const [keyframes, setKeyframes] = useState([]);
+  const [recommendations, setRecommendations] = useState([]);
 
   const detector = useRef(null);
   const defenderId = useRef(null);
@@ -43,12 +45,12 @@ export default function FightTrainer() {
   const baselineDefenderX = useRef(null);
   const videoTrack = useRef(null);
 
-  const actionBuffer = useRef({ kick: [], punch: [], block: [], dodge: [] });
-  const inAction = useRef({
-    kick: false,
-    punch: false,
-    block: false,
-    dodge: false,
+  // Cooldown for action detection to prevent duplicate captures
+  const lastActionTime = useRef({
+    kick: 0,
+    punch: 0,
+    block: 0,
+    dodge: 0,
   });
 
   // Initialize model once at app startup
@@ -234,16 +236,22 @@ export default function FightTrainer() {
     setIsVideoPaused(false);
     setVideoPausedForRoleSelection(false);
     setKeyframes([]);
-    actionBuffer.current = { kick: [], punch: [], block: [], dodge: [] };
-    inAction.current = {
-      kick: false,
-      punch: false,
-      block: false,
-      dodge: false,
-    };
+    setRecommendations([]);
     defenderId.current = null;
     attackerId.current = null;
     baselineDefenderX.current = null;
+    videoTrack.current = null;
+
+    // Reset cooldown timers
+    lastActionTime.current = {
+      kick: 0,
+      punch: 0,
+      block: 0,
+      dodge: 0,
+    };
+
+    // Reset pose analyzer for new training session
+    poseAnalyzer.resetBaselines();
   };
 
   // Start webcam function
@@ -360,9 +368,19 @@ export default function FightTrainer() {
       setShowRoleSelection(false);
       setIsTrainingActive(true);
 
-      // Resume video playback if it was paused for role selection
-      if (isVideoUploaded && videoPausedForRoleSelection && videoRef.current) {
-        videoRef.current.play();
+      // Resume video/webcam playback if it was paused for role selection
+      if (videoPausedForRoleSelection && videoRef.current) {
+        if (isVideoUploaded) {
+          // Resume video playback
+          videoRef.current.play();
+        } else {
+          // Resume webcam by restarting the stream
+          if (videoTrack.current) {
+            const stream = videoTrack.current;
+            videoRef.current.srcObject = stream;
+            videoTrack.current = null;
+          }
+        }
         setIsVideoPaused(false);
         setVideoPausedForRoleSelection(false);
       }
@@ -450,31 +468,25 @@ export default function FightTrainer() {
       return;
     }
 
-    // For camera mode, check if 2 people are detected
-    if (availablePoses.length < 2) {
-      setRoleSelectionWarning(
-        "Cần ít nhất 2 người được phát hiện để bắt đầu huấn luyện!"
-      );
-      return;
-    }
-
+    // For camera mode, show role selection immediately (like video upload)
+    // Don't check for 2 people here - let the detection loop handle it
     setShowRoleSelection(true);
-    setRoleSelectionWarning("");
+    setRoleSelectionWarning("Đang chờ phát hiện 2 người để chọn vai trò...");
   };
 
   const processAction = (type, condition, metric) => {
+    // For the new simplified analyzer, actions are detected immediately
+    // So we just capture the keyframe when an action is detected
     if (condition) {
-      inAction.current[type] = true;
-      actionBuffer.current[type].push({ metric, img: snapshot() });
-    } else if (inAction.current[type]) {
-      inAction.current[type] = false;
-      if (actionBuffer.current[type].length > 0) {
-        let best = actionBuffer.current[type].reduce((a, b) =>
-          a.metric < b.metric ? a : b
-        );
-        addToGallery(best.img, type.toUpperCase());
+      const now = Date.now();
+      const cooldownTime = 1000; // 1 second cooldown between captures
+
+      // Check if enough time has passed since last capture of this action type
+      if (now - lastActionTime.current[type] > cooldownTime) {
+        const img = snapshot();
+        addToGallery(img, type.toUpperCase());
+        lastActionTime.current[type] = now;
       }
-      actionBuffer.current[type] = [];
     }
   };
 
@@ -501,7 +513,7 @@ export default function FightTrainer() {
 
           // Filter poses by confidence and quality
           const filteredPoses = poses.filter((pose) => {
-            return true;
+            return pose.score > 0.3;
             // const validKeypoints = pose.keypoints.filter(
             //   (kp) => kp.score > 0.3
             // ).length;
@@ -531,6 +543,31 @@ export default function FightTrainer() {
               setVideoPausedForRoleSelection(true);
               setShowRoleSelection(true);
               setAvailablePoses(filteredPoses.filter((p) => p.id));
+            }
+          }
+
+          // For webcam mode, pause on first frame with 2 people for role selection (like video upload)
+          if (
+            !isVideoUploaded &&
+            showRoleSelection &&
+            !isTrainingActive &&
+            !videoPausedForRoleSelection &&
+            filteredPoses.length >= 2
+          ) {
+            // Pause webcam by stopping the video stream temporarily
+            const video = videoRef.current;
+            if (video && video.srcObject) {
+              const stream = video.srcObject;
+              const tracks = stream.getTracks();
+              tracks.forEach((track) => track.stop());
+
+              // Store the stream for later resumption
+              videoTrack.current = stream;
+
+              setIsVideoPaused(true);
+              setVideoPausedForRoleSelection(true);
+              setAvailablePoses(filteredPoses.filter((p) => p.id));
+              setRoleSelectionWarning(""); // Clear the waiting message
             }
           }
 
@@ -564,62 +601,31 @@ export default function FightTrainer() {
             );
 
             if (defender && attacker) {
-              // Set baseline for defender position if not set
+              // Use advanced pose analyzer for more accurate detection
+              const analysisResult = poseAnalyzer.analyzePoses(
+                defender,
+                attacker
+              );
+
+              // Process each detected action
+              analysisResult.actions.forEach((action) => {
+                processAction(
+                  action.type,
+                  true, // Action is detected
+                  action.confidence // Use confidence as metric
+                );
+              });
+
+              // Update feedback from detected actions
+              if (analysisResult.feedback.length > 0) {
+                setRecommendations(analysisResult.feedback);
+              }
+
+              // Update baseline for defender position (for backward compatibility)
               if (!baselineDefenderX.current) {
                 baselineDefenderX.current =
                   (defender.keypoints[11].x + defender.keypoints[12].x) / 2;
               }
-
-              // defender points (MoveNet 17 keypoints)
-              const foot = defender.keypoints[16]; // right ankle
-              const knee = defender.keypoints[14]; // right knee
-              const hip = defender.keypoints[12]; // right hip
-              const wrist = defender.keypoints[10]; // right wrist
-              const elbow = defender.keypoints[8]; // right elbow
-              const shoulder = defender.keypoints[6]; // right shoulder
-              const head = defender.keypoints[0]; // nose
-
-              // attacker points (MoveNet 17 keypoints)
-              const aChest = attacker.keypoints[6]; // right shoulder (chest approximation)
-              const aHead = attacker.keypoints[0]; // nose
-              const aWrist = attacker.keypoints[10]; // right wrist
-              const aElbow = attacker.keypoints[8]; // right elbow
-              const aShoulder = attacker.keypoints[6]; // right shoulder
-              const aAnkle = attacker.keypoints[16]; // right ankle
-              const aKnee = attacker.keypoints[14]; // right knee
-              const aHip = attacker.keypoints[12]; // right hip
-
-              // Kick detection
-              const kneeAng = angle(hip, knee, foot);
-              processAction(
-                "kick",
-                kneeAng > 150 && distance(foot, aChest) < 60,
-                distance(foot, aChest)
-              );
-
-              // Punch detection
-              const elbowAng = angle(shoulder, elbow, wrist);
-              processAction(
-                "punch",
-                elbowAng > 150 && distance(wrist, aHead) < 60,
-                distance(wrist, aHead)
-              );
-
-              // Block detection
-              const dBlock = distance(wrist, head);
-              const aPunching = angle(aElbow, aShoulder, aWrist) > 150;
-              processAction("block", dBlock < 50 && aPunching, dBlock);
-
-              // Dodge detection
-              const defTorsoX =
-                (defender.keypoints[11].x + defender.keypoints[12].x) / 2;
-              const shift = Math.abs(defTorsoX - baselineDefenderX.current);
-              const aKicking = angle(aHip, aKnee, aAnkle) > 150;
-              processAction(
-                "dodge",
-                shift > 50 && (aPunching || aKicking),
-                shift
-              );
             }
           }
         } catch (error) {
@@ -894,10 +900,14 @@ export default function FightTrainer() {
                         </>
                       ) : (
                         <div className="text-yellow-400">
-                          {isVideoUploaded && videoPausedForRoleSelection
-                            ? "Video tạm dừng - Chọn vai trò để tiếp tục"
+                          {videoPausedForRoleSelection
+                            ? isVideoUploaded
+                              ? "Video tạm dừng - Chọn vai trò để tiếp tục"
+                              : "Camera tạm dừng - Chọn vai trò để tiếp tục"
                             : isVideoUploaded
                             ? "Video đang phát - Nhấn 'Bắt Đầu Huấn Luyện' để tạm dừng chọn vai trò"
+                            : showRoleSelection
+                            ? "Đang chờ phát hiện 2 người để chọn vai trò..."
                             : 'Nhấn "Bắt Đầu Huấn Luyện" để chọn vai trò và bắt đầu phân tích'}
                         </div>
                       )}
@@ -975,12 +985,20 @@ export default function FightTrainer() {
                       {availablePoses.length >= 2
                         ? "Chọn người nào là Người Phòng Thủ (Xanh) - người còn lại sẽ là Người Tấn Công (Đỏ)"
                         : "Chỉ phát hiện một người. Bạn vẫn có thể phân tích tư thế, nhưng phát hiện hành động cần hai người."}
-                      {isVideoUploaded && videoPausedForRoleSelection && (
+                      {videoPausedForRoleSelection && (
                         <span className="block text-xs text-blue-400 mt-1">
-                          📹 Video tạm dừng - Chọn người phòng thủ để tiếp tục
-                          phân tích
+                          📹 {isVideoUploaded ? "Video" : "Camera"} tạm dừng -
+                          Chọn người phòng thủ để tiếp tục phân tích
                         </span>
                       )}
+                      {!videoPausedForRoleSelection &&
+                        showRoleSelection &&
+                        availablePoses.length < 2 && (
+                          <span className="block text-xs text-blue-400 mt-1">
+                            📹 Camera đang hoạt động - Đang chờ phát hiện 2
+                            người
+                          </span>
+                        )}
                     </p>
 
                     <div className="grid grid-cols-2 gap-3">
@@ -1086,6 +1104,42 @@ export default function FightTrainer() {
                 </div>
               </div>
             </div>
+
+            {/* Action Feedback */}
+            {recommendations.length > 0 && (
+              <div className="bg-gray-800/50 backdrop-blur-sm rounded-2xl p-6 border border-gray-700">
+                <h2 className="text-xl font-semibold mb-4 flex items-center">
+                  <span className="text-2xl mr-3">💡</span>
+                  Phản Hồi Hành Động
+                </h2>
+
+                <div className="space-y-2">
+                  {recommendations.map((rec, index) => (
+                    <div
+                      key={index}
+                      className={`p-3 rounded-lg border-l-4 ${
+                        rec.priority === "high"
+                          ? "bg-red-500/10 border-red-500 text-red-300"
+                          : rec.priority === "medium"
+                          ? "bg-yellow-500/10 border-yellow-500 text-yellow-300"
+                          : "bg-green-500/10 border-green-500 text-green-300"
+                      }`}
+                    >
+                      <div className="flex items-start space-x-2">
+                        <span className="text-sm font-medium">
+                          {rec.priority === "high"
+                            ? "🔴"
+                            : rec.priority === "medium"
+                            ? "🟡"
+                            : "🟢"}
+                        </span>
+                        <span className="text-sm">{rec.message}</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         </div>
 
