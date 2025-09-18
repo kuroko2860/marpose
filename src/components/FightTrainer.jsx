@@ -36,7 +36,6 @@ export default function FightTrainer() {
   const [isVideoPaused, setIsVideoPaused] = useState(false);
   const [videoPausedForRoleSelection, setVideoPausedForRoleSelection] =
     useState(false);
-  const [keyframes, setKeyframes] = useState([]);
   const [recommendations, setRecommendations] = useState([]);
 
   const detector = useRef(null);
@@ -60,25 +59,38 @@ export default function FightTrainer() {
     try {
       setIsLoading(true);
 
-      // Initialize TensorFlow.js backend
+      // Initialize TensorFlow.js backend with optimizations
       await tf.ready();
       try {
         await tf.setBackend("webgl");
         await tf.ready();
+
+        // Optimize WebGL backend for better performance
+        tf.env().set("WEBGL_PACK", true);
+        tf.env().set("WEBGL_FORCE_F16_TEXTURES", true);
+        tf.env().set("WEBGL_DELETE_TEXTURE_THRESHOLD", 0);
+
+        console.log("Using WebGL backend with optimizations");
       } catch (backendError) {
+        console.log("WebGL not available, falling back to CPU");
         await tf.setBackend("cpu");
         await tf.ready();
       }
 
-      // Initialize AI model
+      // Initialize AI model with optimized settings for people detection
       detector.current = await posedetection.createDetector(
         posedetection.SupportedModels.MoveNet,
         {
           modelType: "MultiPose.Lightning",
           enableTracking: true,
           enableSmoothing: true,
-          maxPoses: 10,
+          maxPoses: 2, // Optimize for 2 people (attacker + defender)
           flipHorizontal: false,
+          // Additional optimization parameters
+          minPoseConfidence: 0.1, // Lower threshold for better detection
+          minPartConfidence: 0.1, // Lower threshold for keypoint detection
+          nmsRadius: 20, // Non-maximum suppression radius
+          multiPoseMaxDimension: 256, // Input image size for better performance
         }
       );
 
@@ -204,25 +216,34 @@ export default function FightTrainer() {
     return canvasRef.current.toDataURL("image/png");
   };
 
-  const addToGallery = (img, label) => {
-    setGallery((g) => [...g, { img, label }]);
+  const addToGallery = (img, label, feedback = null) => {
+    // Generate Vietnamese feedback if not provided
+    let vietnameseFeedback = feedback;
+    if (!vietnameseFeedback) {
+      switch (label.toLowerCase()) {
+        case "kick":
+          vietnameseFeedback = "Cú đá được ghi lại! Kỹ thuật tốt.";
+          break;
+        case "punch":
+          vietnameseFeedback = "Cú đấm được ghi lại! Tốc độ tốt.";
+          break;
+        case "block":
+          vietnameseFeedback = "Phòng thủ được ghi lại! Phản xạ nhanh.";
+          break;
+        case "dodge":
+          vietnameseFeedback = "Cú né được ghi lại! Di chuyển linh hoạt.";
+          break;
+        default:
+          vietnameseFeedback = "Hành động được ghi lại!";
+      }
+    }
+
+    setGallery((g) => [...g, { img, label, feedback: vietnameseFeedback }]);
     setCounts((c) => ({
       ...c,
       [label.toLowerCase()]: c[label.toLowerCase()] + 1,
     }));
     setLastAction({ type: label, timestamp: Date.now() });
-
-    // For video analysis, also add to keyframes
-    if (isVideoUploaded) {
-      const keyframe = {
-        img,
-        label,
-        timestamp: Date.now(),
-        videoTime: videoRef.current ? videoRef.current.currentTime : 0,
-        frameNumber: keyframes.length + 1,
-      };
-      setKeyframes((k) => [...k, keyframe]);
-    }
   };
 
   // Clear all data function
@@ -235,7 +256,6 @@ export default function FightTrainer() {
     setRoleSelectionWarning("");
     setIsVideoPaused(false);
     setVideoPausedForRoleSelection(false);
-    setKeyframes([]);
     setRecommendations([]);
     defenderId.current = null;
     attackerId.current = null;
@@ -265,12 +285,17 @@ export default function FightTrainer() {
       setIsLoading(true);
       clearAllData();
 
-      // Get camera stream
+      // Get camera stream with optimized settings for pose detection
       const stream = await navigator.mediaDevices.getUserMedia({
         video: {
           width: { ideal: 640, min: 320, max: 1280 },
           height: { ideal: 480, min: 240, max: 720 },
-          frameRate: { ideal: 30, max: 60 },
+          frameRate: { ideal: 30, max: 30 }, // Limit to 30fps for better performance
+          facingMode: "user", // Front camera for better lighting
+          // Additional camera optimizations
+          focusMode: "continuous",
+          whiteBalanceMode: "continuous",
+          exposureMode: "continuous",
         },
         audio: false,
       });
@@ -345,7 +370,6 @@ export default function FightTrainer() {
     setVideoFile(null);
     setIsVideoPaused(false);
     setVideoPausedForRoleSelection(false);
-    setKeyframes([]);
     defenderId.current = null;
     attackerId.current = null;
     baselineDefenderX.current = null;
@@ -474,7 +498,7 @@ export default function FightTrainer() {
     setRoleSelectionWarning("Đang chờ phát hiện 2 người để chọn vai trò...");
   };
 
-  const processAction = (type, condition, metric) => {
+  const processAction = (type, condition, metric, feedback = null) => {
     // For the new simplified analyzer, actions are detected immediately
     // So we just capture the keyframe when an action is detected
     if (condition) {
@@ -484,7 +508,7 @@ export default function FightTrainer() {
       // Check if enough time has passed since last capture of this action type
       if (now - lastActionTime.current[type] > cooldownTime) {
         const img = snapshot();
-        addToGallery(img, type.toUpperCase());
+        addToGallery(img, type.toUpperCase(), feedback);
         lastActionTime.current[type] = now;
       }
     }
@@ -509,15 +533,48 @@ export default function FightTrainer() {
           // Use videoWidth/videoHeight if available
           let videoWidth = video.videoWidth;
           let videoHeight = video.videoHeight;
-          const poses = await detector.current.estimatePoses(video);
 
-          // Filter poses by confidence and quality
+          // Optimize pose estimation with better parameters
+          const poses = await detector.current.estimatePoses(video, {
+            flipHorizontal: false,
+            maxPoses: 2,
+            scoreThreshold: 0.1, // Lower threshold for better detection
+            nmsRadius: 20,
+            // Additional optimizations
+            multiPoseMaxDimension: 256, // Smaller input size for better performance
+            enableSmoothing: true,
+            enableTracking: true,
+          });
+
+          console.log(
+            "Detected poses:",
+            poses.length,
+            poses.map((p) => ({
+              score: p.score,
+              id: p.id,
+              keypoints: p.keypoints.filter((kp) => kp.score > 0.3).length,
+            }))
+          );
+
+          // Enhanced pose filtering for better people detection
           const filteredPoses = poses.filter((pose) => {
-            return pose.score > 0.3;
-            // const validKeypoints = pose.keypoints.filter(
-            //   (kp) => kp.score > 0.3
-            // ).length;
-            // return pose.score > 0.4 && validKeypoints >= 8; // At least 8 keypoints with good confidence
+            // Lower overall pose confidence threshold
+            if (pose.score < 0.1) return false;
+
+            // Count valid keypoints (head, shoulders, hips, knees, ankles)
+            const criticalKeypoints = [0, 5, 6, 11, 12, 13, 14, 15, 16]; // nose, shoulders, hips, knees, ankles
+            const validCriticalKeypoints = criticalKeypoints.filter(
+              (index) =>
+                pose.keypoints[index] && pose.keypoints[index].score > 0.2
+            ).length;
+
+            // Count all valid keypoints
+            const validKeypoints = pose.keypoints.filter(
+              (kp) => kp.score > 0.2
+            ).length;
+
+            // Require at least 4 critical keypoints and 6 total keypoints
+            return validCriticalKeypoints >= 4 && validKeypoints >= 6;
           });
 
           // MoveNet with enableTracking: true already provides trackId
@@ -612,7 +669,8 @@ export default function FightTrainer() {
                 processAction(
                   action.type,
                   true, // Action is detected
-                  action.confidence // Use confidence as metric
+                  action.confidence, // Use confidence as metric
+                  action.feedback?.message // Pass the feedback message
                 );
               });
 
@@ -1113,11 +1171,11 @@ export default function FightTrainer() {
                   Phản Hồi Hành Động
                 </h2>
 
-                <div className="space-y-2">
+                <div className="space-y-3">
                   {recommendations.map((rec, index) => (
                     <div
                       key={index}
-                      className={`p-3 rounded-lg border-l-4 ${
+                      className={`p-4 rounded-lg border-l-4 ${
                         rec.priority === "high"
                           ? "bg-red-500/10 border-red-500 text-red-300"
                           : rec.priority === "medium"
@@ -1125,15 +1183,82 @@ export default function FightTrainer() {
                           : "bg-green-500/10 border-green-500 text-green-300"
                       }`}
                     >
-                      <div className="flex items-start space-x-2">
-                        <span className="text-sm font-medium">
+                      <div className="flex items-start space-x-3">
+                        <span className="text-lg font-medium">
                           {rec.priority === "high"
                             ? "🔴"
                             : rec.priority === "medium"
                             ? "🟡"
                             : "🟢"}
                         </span>
-                        <span className="text-sm">{rec.message}</span>
+                        <div className="flex-1">
+                          <span className="text-sm font-medium">
+                            {rec.message}
+                          </span>
+
+                          {/* Keyframe Information */}
+                          {rec.keyframe && (
+                            <div className="mt-2 p-2 bg-gray-700/50 rounded-lg">
+                              <div className="flex items-center space-x-2 mb-1">
+                                <span className="text-xs font-semibold text-blue-300">
+                                  📸 Keyframe: {rec.keyframe.action}
+                                </span>
+                                <span className="text-xs text-gray-400">
+                                  ({rec.keyframe.frameCount} frames)
+                                </span>
+                              </div>
+                              <div className="grid grid-cols-2 gap-1 text-xs text-gray-300">
+                                {Object.entries(rec.keyframe.metrics).map(
+                                  ([key, value]) => (
+                                    <div
+                                      key={key}
+                                      className="flex justify-between"
+                                    >
+                                      <span className="capitalize">{key}:</span>
+                                      <span className="font-medium">
+                                        {value}
+                                      </span>
+                                    </div>
+                                  )
+                                )}
+                              </div>
+                            </div>
+                          )}
+
+                          {/* Movement Analysis Information */}
+                          {rec.movement && (
+                            <div className="mt-2 p-2 bg-purple-700/30 rounded-lg border border-purple-500/30">
+                              <div className="flex items-center space-x-2 mb-1">
+                                <span className="text-xs font-semibold text-purple-300">
+                                  🏃 Phân Tích Chuyển Động
+                                </span>
+                                <span className="text-xs text-gray-400">
+                                  ({rec.movement.totalFrames} frames)
+                                </span>
+                              </div>
+                              <div className="grid grid-cols-2 gap-1 text-xs text-gray-300">
+                                {Object.entries(rec.movement).map(
+                                  ([key, value]) => {
+                                    if (key === "totalFrames") return null;
+                                    return (
+                                      <div
+                                        key={key}
+                                        className="flex justify-between"
+                                      >
+                                        <span className="capitalize">
+                                          {key}:
+                                        </span>
+                                        <span className="font-medium">
+                                          {value}
+                                        </span>
+                                      </div>
+                                    );
+                                  }
+                                )}
+                              </div>
+                            </div>
+                          )}
+                        </div>
                       </div>
                     </div>
                   ))}
@@ -1175,7 +1300,9 @@ export default function FightTrainer() {
                       win.document.write(`
                         <html>
                           <head>
-                             <title>${g.label} - Huấn Luyện Viên Võ Thuật AI</title>
+                             <title>${
+                               g.label
+                             } - Huấn Luyện Viên Võ Thuật AI</title>
                             <style>
                               body { 
                                 margin: 0; 
@@ -1203,6 +1330,11 @@ export default function FightTrainer() {
                           <body>
                             <h2>${g.label}</h2>
                             <img src="${g.img}" alt="${g.label}">
+                            ${
+                              g.feedback
+                                ? `<div style="margin-top: 20px; padding: 15px; background: rgba(59, 130, 246, 0.1); border-radius: 8px; border: 1px solid #3b82f6;"><h3 style="color: #3b82f6; margin-bottom: 10px;">💡 Phản Hồi:</h3><p style="color: #e5e7eb;">${g.feedback}</p></div>`
+                                : ""
+                            }
                           </body>
                         </html>
                       `);
@@ -1219,6 +1351,11 @@ export default function FightTrainer() {
                           <div className="text-white font-semibold text-sm">
                             {g.label}
                           </div>
+                          {g.feedback && (
+                            <div className="text-blue-300 text-xs mt-1 line-clamp-2">
+                              💡 {g.feedback}
+                            </div>
+                          )}
                         </div>
                       </div>
                       <div className="absolute top-2 right-2">
@@ -1236,137 +1373,6 @@ export default function FightTrainer() {
                           }`}
                         >
                           {g.label}
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Keyframes Section - Only for Video Analysis */}
-        {isVideoUploaded && keyframes.length > 0 && (
-          <div className="mt-8">
-            <div className="bg-gray-800/50 backdrop-blur-sm rounded-2xl p-6 border border-gray-700">
-              <div className="flex items-center justify-between mb-6">
-                <h2 className="text-xl font-semibold flex items-center">
-                  <span className="text-2xl mr-3">🎬</span>
-                  Khung Hình Chính Video
-                  <span className="ml-3 bg-purple-500/20 text-purple-400 px-3 py-1 rounded-full text-sm">
-                    {keyframes.length} khung hình
-                  </span>
-                </h2>
-                {keyframes.length > 0 && (
-                  <button
-                    onClick={() => setKeyframes([])}
-                    className="bg-red-500/20 hover:bg-red-500/30 text-red-400 px-4 py-2 rounded-lg text-sm font-medium transition-colors border border-red-500/30"
-                  >
-                    Xóa Khung Hình
-                  </button>
-                )}
-              </div>
-
-              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-4">
-                {keyframes.map((keyframe, i) => (
-                  <div
-                    key={i}
-                    className="group cursor-pointer transform transition-all duration-300 hover:scale-105"
-                    onClick={() => {
-                      const win = window.open();
-                      win.document.write(`
-                        <html>
-                          <head>
-                             <title>${keyframe.label} - Khung Hình ${
-                        keyframe.frameNumber
-                      }</title>
-                            <style>
-                              body { 
-                                margin: 0; 
-                                padding: 20px; 
-                                background: #1f2937; 
-                                color: white; 
-                                font-family: Arial, sans-serif;
-                                text-align: center;
-                              }
-                              img { 
-                                max-width: 100%; 
-                                height: auto; 
-                                border-radius: 12px;
-                                box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.3);
-                              }
-                              h2 {
-                                background: linear-gradient(45deg, #3b82f6, #ef4444);
-                                -webkit-background-clip: text;
-                                -webkit-text-fill-color: transparent;
-                                font-size: 2rem;
-                                margin-bottom: 10px;
-                              }
-                              .info {
-                                background: rgba(0, 0, 0, 0.3);
-                                padding: 15px;
-                                border-radius: 8px;
-                                margin: 20px 0;
-                              }
-                            </style>
-                          </head>
-                          <body>
-                            <h2>${keyframe.label}</h2>
-                            <div class="info">
-                               <p><strong>Khung:</strong> ${
-                                 keyframe.frameNumber
-                               }</p>
-                               <p><strong>Thời Gian Video:</strong> ${keyframe.videoTime.toFixed(
-                                 2
-                               )}s</p>
-                               <p><strong>Thời Gian:</strong> ${new Date(
-                                 keyframe.timestamp
-                               ).toLocaleTimeString()}</p>
-                            </div>
-                            <img src="${keyframe.img}" alt="${keyframe.label}">
-                          </body>
-                        </html>
-                      `);
-                    }}
-                  >
-                    <div className="relative bg-gray-700 rounded-xl overflow-hidden border border-gray-600 group-hover:border-purple-500 transition-colors">
-                      <img
-                        src={keyframe.img}
-                        alt={keyframe.label}
-                        className="w-full h-32 object-cover"
-                      />
-                      <div className="absolute inset-0 bg-gradient-to-t from-black/80 to-transparent opacity-0 group-hover:opacity-100 transition-opacity">
-                        <div className="absolute bottom-2 left-2 right-2">
-                          <div className="text-white font-semibold text-sm">
-                            {keyframe.label}
-                          </div>
-                          <div className="text-white/80 text-xs">
-                            Khung {keyframe.frameNumber} •{" "}
-                            {keyframe.videoTime.toFixed(1)}s
-                          </div>
-                        </div>
-                      </div>
-                      <div className="absolute top-2 right-2">
-                        <span
-                          className={`px-2 py-1 rounded-full text-xs font-medium ${
-                            keyframe.label === "KICK"
-                              ? "bg-red-500/80 text-white"
-                              : keyframe.label === "PUNCH"
-                              ? "bg-orange-500/80 text-white"
-                              : keyframe.label === "BLOCK"
-                              ? "bg-green-500/80 text-white"
-                              : keyframe.label === "DODGE"
-                              ? "bg-purple-500/80 text-white"
-                              : "bg-green-500/80 text-white"
-                          }`}
-                        >
-                          {keyframe.label}
-                        </span>
-                      </div>
-                      <div className="absolute top-2 left-2">
-                        <span className="bg-purple-500/80 text-white px-2 py-1 rounded-full text-xs font-medium">
-                          #{keyframe.frameNumber}
                         </span>
                       </div>
                     </div>
