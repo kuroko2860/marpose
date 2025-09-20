@@ -68,29 +68,31 @@ export const trainingTypes = [
   },
 ];
 
-// Simple action classification rules
+// Enhanced action classification rules
 export const ACTION_SIGNATURES = {
   kick: {
     name: "Kick",
-    description: "Leg raised high, body leaning back",
+    description: "Leg straight and lifting, ankle close to target",
     keypoints: {
-      // High leg position
-      leg_raised: [13, 14, 15, 16], // knees and ankles
-      // Body lean
-      body_lean: [5, 6, 11, 12], // shoulders and hips
+      // Leg straight and raised
+      leg_straight: [11, 13, 15], // hip, knee, ankle (left leg)
+      leg_straight_right: [12, 14, 16], // hip, knee, ankle (right leg)
+      // Ankle position (should be high/close to target)
+      ankle_high: [15, 16], // ankles
     },
-    threshold: 0.6
+    threshold: 0.5
   },
   punch: {
     name: "Punch", 
-    description: "Arm extended forward, body leaning forward",
+    description: "Arm straight and extended toward target",
     keypoints: {
-      // Extended arm
-      arm_extended: [7, 8, 9, 10], // elbows and wrists
-      // Body lean
-      body_lean: [5, 6, 11, 12], // shoulders and hips
+      // Arm straight and extended
+      arm_straight_left: [5, 7, 9], // shoulder, elbow, wrist (left arm)
+      arm_straight_right: [6, 8, 10], // shoulder, elbow, wrist (right arm)
+      // Wrist position (should be extended forward)
+      wrist_extended: [9, 10], // wrists
     },
-    threshold: 0.6
+    threshold: 0.5
   },
   block: {
     name: "Block",
@@ -195,42 +197,185 @@ export const classifyAction = (keypoints) => {
   let bestAction = "unknown";
   let bestScore = 0;
 
-  // Check each action signature
-  Object.entries(ACTION_SIGNATURES).forEach(([actionName, signature]) => {
-    let score = 0;
-    let totalChecks = 0;
+  // Check kick: leg straight and lifting, ankle close to target
+  const kickScore = checkKick(keypoints);
+  if (kickScore > bestScore && kickScore >= ACTION_SIGNATURES.kick.threshold) {
+    bestScore = kickScore;
+    bestAction = "kick";
+  }
 
-    // Check keypoint groups
-    Object.entries(signature.keypoints).forEach(([groupName, keypointIndices]) => {
-      let groupScore = 0;
-      let validKeypoints = 0;
+  // Check punch: arm straight and extended toward target
+  const punchScore = checkPunch(keypoints);
+  if (punchScore > bestScore && punchScore >= ACTION_SIGNATURES.punch.threshold) {
+    bestScore = punchScore;
+    bestAction = "punch";
+  }
 
-      keypointIndices.forEach(index => {
-        if (keypoints[index] && keypoints[index].score > MIN_SCORE) {
-          validKeypoints++;
-          groupScore += keypoints[index].score;
-        }
-      });
+  // Check block: arms raised up, protecting head
+  const blockScore = checkBlock(keypoints);
+  if (blockScore > bestScore && blockScore >= ACTION_SIGNATURES.block.threshold) {
+    bestScore = blockScore;
+    bestAction = "block";
+  }
 
-      if (validKeypoints > 0) {
-        score += groupScore / validKeypoints;
-        totalChecks++;
-      }
-    });
-
-    if (totalChecks > 0) {
-      score = score / totalChecks;
-      if (score > bestScore && score >= signature.threshold) {
-        bestScore = score;
-        bestAction = actionName;
-      }
-    }
-  });
+  // Check dodge: body leaning to side
+  const dodgeScore = checkDodge(keypoints);
+  if (dodgeScore > bestScore && dodgeScore >= ACTION_SIGNATURES.dodge.threshold) {
+    bestScore = dodgeScore;
+    bestAction = "dodge";
+  }
 
   return {
     action: bestAction,
     confidence: bestScore
   };
+};
+
+// Check for kick: leg straight and lifting
+const checkKick = (keypoints) => {
+  let maxKickScore = 0;
+
+  // Check left leg
+  const leftHip = keypoints[11];
+  const leftKnee = keypoints[13];
+  const leftAnkle = keypoints[15];
+
+  if (leftHip.score > MIN_SCORE && leftKnee.score > MIN_SCORE && leftAnkle.score > MIN_SCORE) {
+    // Check if leg is straight (knee angle close to 180 degrees)
+    const leftLegAngle = calculateAngle(leftHip, leftKnee, leftAnkle);
+    const leftLegStraightness = Math.abs(leftLegAngle - 180) / 180; // 0 = perfectly straight
+    
+    // Check if ankle is higher than knee (lifting)
+    const leftLifting = leftAnkle.y < leftKnee.y ? 1 : 0;
+    
+    // Check if ankle is close to body center (target proximity)
+    const bodyCenter = { x: (keypoints[5].x + keypoints[6].x) / 2, y: (keypoints[5].y + keypoints[6].y) / 2 };
+    const leftDistance = calculateDistance(leftAnkle, bodyCenter);
+    const leftProximity = Math.max(0, 1 - leftDistance / 200); // Closer = higher score
+    
+    const leftKickScore = (leftLegStraightness + leftLifting + leftProximity) / 3;
+    maxKickScore = Math.max(maxKickScore, leftKickScore);
+  }
+
+  // Check right leg
+  const rightHip = keypoints[12];
+  const rightKnee = keypoints[14];
+  const rightAnkle = keypoints[16];
+
+  if (rightHip.score > MIN_SCORE && rightKnee.score > MIN_SCORE && rightAnkle.score > MIN_SCORE) {
+    // Check if leg is straight
+    const rightLegAngle = calculateAngle(rightHip, rightKnee, rightAnkle);
+    const rightLegStraightness = Math.abs(rightLegAngle - 180) / 180;
+    
+    // Check if ankle is higher than knee (lifting)
+    const rightLifting = rightAnkle.y < rightKnee.y ? 1 : 0;
+    
+    // Check if ankle is close to body center
+    const bodyCenter = { x: (keypoints[5].x + keypoints[6].x) / 2, y: (keypoints[5].y + keypoints[6].y) / 2 };
+    const rightDistance = calculateDistance(rightAnkle, bodyCenter);
+    const rightProximity = Math.max(0, 1 - rightDistance / 200);
+    
+    const rightKickScore = (rightLegStraightness + rightLifting + rightProximity) / 3;
+    maxKickScore = Math.max(maxKickScore, rightKickScore);
+  }
+
+  return maxKickScore;
+};
+
+// Check for punch: arm straight and extended toward target
+const checkPunch = (keypoints) => {
+  let maxPunchScore = 0;
+
+  // Check left arm
+  const leftShoulder = keypoints[5];
+  const leftElbow = keypoints[7];
+  const leftWrist = keypoints[9];
+
+  if (leftShoulder.score > MIN_SCORE && leftElbow.score > MIN_SCORE && leftWrist.score > MIN_SCORE) {
+    // Check if arm is straight (elbow angle close to 180 degrees)
+    const leftArmAngle = calculateAngle(leftShoulder, leftElbow, leftWrist);
+    const leftArmStraightness = Math.abs(leftArmAngle - 180) / 180;
+    
+    // Check if wrist is extended forward (away from body)
+    const leftExtension = leftWrist.x > leftShoulder.x ? 1 : 0;
+    
+    // Check if wrist is close to head/shoulder level
+    const headY = keypoints[0].y; // nose
+    const leftHeightMatch = Math.abs(leftWrist.y - headY) < 100 ? 1 : 0;
+    
+    const leftPunchScore = (leftArmStraightness + leftExtension + leftHeightMatch) / 3;
+    maxPunchScore = Math.max(maxPunchScore, leftPunchScore);
+  }
+
+  // Check right arm
+  const rightShoulder = keypoints[6];
+  const rightElbow = keypoints[8];
+  const rightWrist = keypoints[10];
+
+  if (rightShoulder.score > MIN_SCORE && rightElbow.score > MIN_SCORE && rightWrist.score > MIN_SCORE) {
+    // Check if arm is straight
+    const rightArmAngle = calculateAngle(rightShoulder, rightElbow, rightWrist);
+    const rightArmStraightness = Math.abs(rightArmAngle - 180) / 180;
+    
+    // Check if wrist is extended forward
+    const rightExtension = rightWrist.x > rightShoulder.x ? 1 : 0;
+    
+    // Check if wrist is close to head/shoulder level
+    const headY = keypoints[0].y; // nose
+    const rightHeightMatch = Math.abs(rightWrist.y - headY) < 100 ? 1 : 0;
+    
+    const rightPunchScore = (rightArmStraightness + rightExtension + rightHeightMatch) / 3;
+    maxPunchScore = Math.max(maxPunchScore, rightPunchScore);
+  }
+
+  return maxPunchScore;
+};
+
+// Check for block: arms raised up, protecting head
+const checkBlock = (keypoints) => {
+  let blockScore = 0;
+  let validChecks = 0;
+
+  // Check if arms are raised (wrists above shoulders)
+  const leftShoulder = keypoints[5];
+  const rightShoulder = keypoints[6];
+  const leftWrist = keypoints[9];
+  const rightWrist = keypoints[10];
+
+  if (leftShoulder.score > MIN_SCORE && leftWrist.score > MIN_SCORE) {
+    const leftRaised = leftWrist.y < leftShoulder.y ? 1 : 0;
+    blockScore += leftRaised;
+    validChecks++;
+  }
+
+  if (rightShoulder.score > MIN_SCORE && rightWrist.score > MIN_SCORE) {
+    const rightRaised = rightWrist.y < rightShoulder.y ? 1 : 0;
+    blockScore += rightRaised;
+    validChecks++;
+  }
+
+  return validChecks > 0 ? blockScore / validChecks : 0;
+};
+
+// Check for dodge: body leaning to side
+const checkDodge = (keypoints) => {
+  const leftShoulder = keypoints[5];
+  const rightShoulder = keypoints[6];
+  const leftHip = keypoints[11];
+  const rightHip = keypoints[12];
+
+  if (leftShoulder.score > MIN_SCORE && rightShoulder.score > MIN_SCORE && 
+      leftHip.score > MIN_SCORE && rightHip.score > MIN_SCORE) {
+    
+    // Check if body is leaning (shoulders and hips not aligned)
+    const shoulderDiff = Math.abs(leftShoulder.y - rightShoulder.y);
+    const hipDiff = Math.abs(leftHip.y - rightHip.y);
+    
+    const leanScore = (shoulderDiff + hipDiff) / 200; // Normalize
+    return Math.min(leanScore, 1);
+  }
+
+  return 0;
 };
 
 // Simple pose analysis for defender

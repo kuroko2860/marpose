@@ -1119,31 +1119,6 @@ export default function PoseCapture() {
                           Camera Đang Hoạt Động
                         </span>
                       </div>
-                      <div className="flex items-center space-x-2">
-                        <div
-                          className={`w-2 h-2 rounded-full ${
-                            multiPoseDetector && singlePoseDetector
-                              ? "bg-green-400"
-                              : "bg-yellow-400"
-                          }`}
-                        ></div>
-                        <span
-                          className={
-                            multiPoseDetector && singlePoseDetector
-                              ? "text-green-400"
-                              : "text-yellow-400"
-                          }
-                        >
-                          {multiPoseDetector && singlePoseDetector
-                            ? "Two-Stage Sẵn Sàng"
-                            : "Đang Tải Models"}
-                        </span>
-                      </div>
-                      {capturedImages.length > 0 && (
-                        <div className="text-blue-400">
-                          {capturedImages.length} ảnh đã chụp
-                        </div>
-                      )}
                     </div>
                   </div>
                 )}
