@@ -85,9 +85,9 @@ export default function PoseCapture() {
       setIsModelLoading(false);
       console.log("Both MoveNet models loaded successfully!");
     } catch (error) {
-      console.error("Error loading MoveNet models:", error);
+      console.error("Error loading AI models:", error);
       setIsModelLoading(false);
-      setError("Không thể tải mô hình MoveNet. Vui lòng thử lại.");
+      setError("Không thể tải mô hình AI. Vui lòng thử lại.");
     }
   };
 
@@ -169,7 +169,7 @@ export default function PoseCapture() {
     if (!isWebcamActive || isCapturing) return;
 
     if (!multiPoseDetector || !singlePoseDetector) {
-      setError("Mô hình MoveNet chưa được tải. Vui lòng thử lại.");
+      setError("Mô hình AI chưa được tải. Vui lòng thử lại.");
       return;
     }
 
@@ -306,30 +306,33 @@ export default function PoseCapture() {
       setShowRoleSelection(false);
       redrawCanvas(false, roles);
 
-      // Analyze defender pose if training session is active
-      if (currentSession && currentSession.trainingType) {
-        const defenderAnalysis = analyzeDefenderPose(
-          selectedImageDetail.poses,
-          currentSession.trainingType
-        );
-        if (defenderAnalysis) {
-          // Update the selected image detail with defender analysis
-          setSelectedImageDetail((prev) => ({
-            ...prev,
-            defenderAnalysis: defenderAnalysis,
-          }));
-        }
+      // Always analyze defender pose and classify actions
+      const defenderAnalysis = analyzeDefenderPose(
+        selectedImageDetail.poses,
+        currentSession?.trainingType || "1", // Default to first training type if no session
+        roles // Pass the roles directly
+      );
+      if (defenderAnalysis) {
+        // Update the selected image detail with defender analysis
+        setSelectedImageDetail((prev) => ({
+          ...prev,
+          defenderAnalysis: defenderAnalysis,
+        }));
       }
     }, 500);
   };
 
   // Analyze defender pose and classify all actions
-  const analyzeDefenderPose = (poses, trainingTypeId) => {
+  const analyzeDefenderPose = (
+    poses,
+    trainingTypeId,
+    roles = selectedPersonRoles
+  ) => {
     if (!poses || poses.length === 0) return null;
 
     // Find the defender pose
-    const defenderIndex = Object.keys(selectedPersonRoles).find(
-      (index) => selectedPersonRoles[index] === "defender"
+    const defenderIndex = Object.keys(roles).find(
+      (index) => roles[index] === "defender"
     );
 
     if (defenderIndex === undefined) return null;
@@ -351,7 +354,7 @@ export default function PoseCapture() {
 
     // Find attacker actions
     const attackerActions = classifiedActions.filter(
-      (_, index) => selectedPersonRoles[index] === "attacker"
+      (_, index) => roles[index] === "attacker"
     );
 
     // Analyze defender pose based on detected action
@@ -416,7 +419,7 @@ export default function PoseCapture() {
   // Process uploaded image with two-stage detection
   const processUploadedImage = async (file) => {
     if (!multiPoseDetector || !singlePoseDetector) {
-      setError("Mô hình MoveNet chưa được tải. Vui lòng thử lại.");
+      setError("Mô hình AI chưa được tải. Vui lòng thử lại.");
       return;
     }
 
@@ -877,12 +880,6 @@ export default function PoseCapture() {
     };
   }, [showImageDetailModal]);
 
-  // Debug refs on mount
-  useEffect(() => {
-    console.log("Component mounted - Video ref:", videoRef.current);
-    console.log("Component mounted - Canvas ref:", canvasRef.current);
-  }, []);
-
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900 text-white">
       <div className="max-w-7xl mx-auto px-4 py-8">
@@ -905,9 +902,9 @@ export default function PoseCapture() {
                   }`}
                 ></div>
                 <span className="text-sm">
-                  MoveNet Models:{" "}
+                  Mô hình AI:{" "}
                   {multiPoseDetector && singlePoseDetector
-                    ? "MultiPose + SinglePose - Đã Sẵn Sàng"
+                    ? "Đã Sẵn Sàng"
                     : isModelLoading
                     ? "Đang Tải..."
                     : "Chưa Tải"}
@@ -1560,75 +1557,6 @@ export default function PoseCapture() {
                         </div>
                       )}
                     </div>
-                  </div>
-
-                  {/* Pose Details */}
-                  {selectedImageDetail.poses &&
-                    selectedImageDetail.poses.length > 0 && (
-                      <div className="bg-gray-700 rounded-lg p-4 mb-4">
-                        <h5 className="font-semibold text-white mb-2">
-                          Chi Tiết Tư Thế
-                        </h5>
-                        <div className="space-y-3">
-                          {selectedImageDetail.poses.map((pose, index) => (
-                            <div
-                              key={index}
-                              className="border-l-4 border-blue-500 pl-3"
-                            >
-                              <div className="text-sm text-blue-400 font-medium">
-                                Tư thế {index + 1}{" "}
-                                {selectedPersonRoles[index]
-                                  ? `(${
-                                      selectedPersonRoles[index] === "defender"
-                                        ? "Defender"
-                                        : "Attacker"
-                                    })`
-                                  : "(Chưa chọn vai trò)"}
-                              </div>
-                              <div className="text-xs text-gray-300">
-                                Điểm số: {Math.round((pose.score || 0) * 100)}%
-                              </div>
-                              <div className="text-xs text-gray-300">
-                                Keypoints: {pose.keypoints?.length || 0}
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-
-                  {/* Analysis */}
-                  {selectedImageDetail.analysis && (
-                    <div className="bg-gray-700 rounded-lg p-4">
-                      <h5 className="font-semibold text-white mb-2">
-                        Phân Tích Chi Tiết
-                      </h5>
-                      <div className="space-y-2 text-sm">
-                        {Object.entries(selectedImageDetail.analysis).map(
-                          ([key, value]) => (
-                            <div key={key} className="flex justify-between">
-                              <span className="text-gray-300 capitalize">
-                                {key}:
-                              </span>
-                              <span className="text-white">{value}</span>
-                            </div>
-                          )
-                        )}
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Feedback */}
-                  <div className="bg-gradient-to-r from-green-500/20 to-blue-500/20 rounded-lg p-4 mt-4 border border-green-500/30">
-                    <h5 className="font-semibold text-green-400 mb-2">
-                      💡 Phản Hồi
-                    </h5>
-                    <p className="text-sm text-gray-300">
-                      {selectedImageDetail.poses &&
-                      selectedImageDetail.poses.length > 0
-                        ? "Tư thế được phát hiện thành công! Hãy tiếp tục luyện tập để cải thiện kỹ thuật."
-                        : "Không phát hiện được tư thế rõ ràng. Hãy đảm bảo bạn đang trong tầm nhìn của camera."}
-                    </p>
                   </div>
                 </div>
               </div>
