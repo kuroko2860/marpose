@@ -644,20 +644,23 @@ export default function PoseCapture() {
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900 text-white">
       {/* Header */}
-      <div className="bg-black/20 backdrop-blur-sm border-b border-gray-700">
+      {/* <div className="bg-black/20 backdrop-blur-sm border-b border-gray-700">
         <div className="max-w-7xl mx-auto px-4 py-6">
-          <h1 className="text-3xl font-bold text-center bg-gradient-to-r from-blue-400 to-red-400 bg-clip-text text-transparent">
-            📸 Chụp Ảnh & Phân Tích Tư Thế
+          <h1 className="text-3xl font-bold text-center bg-gradient-to-r from-blue-400 to-red-400 bg-clip-text text-transparent p-2">
+            📸 Phân tích tư thế võ thuật bằng AI
           </h1>
-          <p className="text-center text-gray-300 mt-2">
-            Chụp ảnh thủ công và phân tích tư thế bằng AI
-          </p>
+           <p className="text-center text-gray-300 mt-2">
+            Phân tích tư thế võ thuật bằng AI
+          </p> 
         </div>
-      </div>
+      </div> */}
 
       <div className="max-w-7xl mx-auto px-4 py-8">
         {/* Status Indicators */}
         <div className="mb-6 grid grid-cols-1 md:grid-cols-2 gap-4">
+          <h1 className="text-3xl font-bold text-center bg-gradient-to-r from-blue-400 to-red-400 bg-clip-text text-transparent py-2">
+            📸 Phân tích tư thế võ thuật bằng AI
+          </h1>
           {/* MoveNet Model Status */}
           <div className="bg-gray-800/50 backdrop-blur-sm rounded-2xl p-4 border border-gray-700">
             <div className="flex items-center justify-between">
