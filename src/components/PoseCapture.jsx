@@ -1,5 +1,4 @@
 import React, { useEffect, useRef, useState } from "react";
-import { poseApi } from "../services/poseApi";
 import * as posedetection from "@tensorflow-models/pose-detection";
 import * as tf from "@tensorflow/tfjs";
 import "@tensorflow/tfjs-backend-webgl";
@@ -16,7 +15,6 @@ export default function PoseCapture() {
   const [isCapturing, setIsCapturing] = useState(false);
   const [capturedImages, setCapturedImages] = useState([]);
   const [currentSession, setCurrentSession] = useState(null);
-  const [serverStatus, setServerStatus] = useState("unknown");
   const [error, setError] = useState(null);
   const [showTrainingTypeModal, setShowTrainingTypeModal] = useState(false);
   const [selectedTrainingType, setSelectedTrainingType] = useState("");
@@ -467,16 +465,6 @@ export default function PoseCapture() {
     return finalPoses;
   };
 
-  // Check server status
-  const checkServerStatus = async () => {
-    try {
-      const status = await poseApi.getServerStatus();
-      setServerStatus(status.status || "connected");
-    } catch (error) {
-      setServerStatus("disconnected");
-    }
-  };
-
   // Draw pose skeleton on canvas
   const drawPoseSkeleton = (
     ctx,
@@ -647,13 +635,6 @@ export default function PoseCapture() {
     };
   }, [showImageDetailModal]);
 
-  // Initialize server status check
-  useEffect(() => {
-    checkServerStatus();
-    const interval = setInterval(checkServerStatus, 30000); // Check every 30 seconds
-    return () => clearInterval(interval);
-  }, []);
-
   // Debug refs on mount
   useEffect(() => {
     console.log("Component mounted - Video ref:", videoRef.current);
@@ -677,37 +658,6 @@ export default function PoseCapture() {
       <div className="max-w-7xl mx-auto px-4 py-8">
         {/* Status Indicators */}
         <div className="mb-6 grid grid-cols-1 md:grid-cols-2 gap-4">
-          {/* Server Status */}
-          <div className="bg-gray-800/50 backdrop-blur-sm rounded-2xl p-4 border border-gray-700">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center space-x-3">
-                <div
-                  className={`w-3 h-3 rounded-full ${
-                    serverStatus === "connected"
-                      ? "bg-green-500 animate-pulse"
-                      : serverStatus === "disconnected"
-                      ? "bg-red-500"
-                      : "bg-yellow-500"
-                  }`}
-                ></div>
-                <span className="text-sm">
-                  Trạng Thái Server:{" "}
-                  {serverStatus === "connected"
-                    ? "Đã Kết Nối"
-                    : serverStatus === "disconnected"
-                    ? "Mất Kết Nối"
-                    : "Không Xác Định"}
-                </span>
-              </div>
-              <button
-                onClick={checkServerStatus}
-                className="bg-blue-500 hover:bg-blue-600 text-white px-3 py-1 rounded text-sm transition-colors"
-              >
-                Làm Mới
-              </button>
-            </div>
-          </div>
-
           {/* MoveNet Model Status */}
           <div className="bg-gray-800/50 backdrop-blur-sm rounded-2xl p-4 border border-gray-700">
             <div className="flex items-center justify-between">
