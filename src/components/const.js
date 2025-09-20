@@ -47,24 +47,20 @@ export const KEYPOINT_NAMES = [
  // Mock training types
 export const trainingTypes = [
   {
-    id: "basic",
-    name: "Huấn Luyện Cơ Bản",
-    description: "Các động tác cơ bản cho người mới bắt đầu",
+    id: "1",
+    name: "Gậy bổ thượng",
   },
   {
-    id: "intermediate",
-    name: "Huấn Luyện Trung Cấp",
-    description: "Các kỹ thuật nâng cao hơn",
+    id: "2",
+    name: "Gậy vát thuận",
   },
   {
-    id: "advanced",
-    name: "Huấn Luyện Nâng Cao",
-    description: "Các động tác phức tạp cho người có kinh nghiệm",
+    id: "3",
+    name: "Dao đâm xốc",
   },
   {
-    id: "competition",
-    name: "Huấn Luyện Thi Đấu",
-    description: "Chuẩn bị cho các cuộc thi và biểu diễn",
+    id: "4",
+    name: "Dao vát thuận",
   },
 ];
 

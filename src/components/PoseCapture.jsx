@@ -26,14 +26,16 @@ export default function PoseCapture() {
   const [moveNetDetector, setMoveNetDetector] = useState(null);
   const [isModelLoading, setIsModelLoading] = useState(false);
   const [imageZoom, setImageZoom] = useState(1);
+  const [multiPoseDetector, setMultiPoseDetector] = useState(null);
+  const [singlePoseDetector, setSinglePoseDetector] = useState(null);
 
-  // Initialize MoveNet model
+  // Initialize both MoveNet models
   const initializeMoveNet = async () => {
-    if (moveNetDetector) return;
+    if (multiPoseDetector && singlePoseDetector) return;
 
     try {
       setIsModelLoading(true);
-      console.log("Initializing MoveNet MultiPose...");
+      console.log("Initializing MoveNet models...");
 
       // Initialize TensorFlow.js backend
       await tf.ready();
@@ -47,8 +49,8 @@ export default function PoseCapture() {
         await tf.ready();
       }
 
-      // Initialize MoveNet MultiPose detector
-      const detector = await posedetection.createDetector(
+      // Initialize MultiPose detector for bounding box detection
+      const multiPose = await posedetection.createDetector(
         posedetection.SupportedModels.MoveNet,
         {
           modelType: "MultiPose.Lightning",
@@ -63,11 +65,26 @@ export default function PoseCapture() {
         }
       );
 
-      setMoveNetDetector(detector);
+      // Initialize SinglePose detector for precise pose detection
+      const singlePose = await posedetection.createDetector(
+        posedetection.SupportedModels.MoveNet,
+        {
+          modelType: "SinglePose.Thunder",
+          enableTracking: true,
+          enableSmoothing: true,
+          flipHorizontal: false,
+          minPoseConfidence: 0.1,
+          minPartConfidence: 0.1,
+        }
+      );
+
+      setMultiPoseDetector(multiPose);
+      setSinglePoseDetector(singlePose);
+      setMoveNetDetector(multiPose); // Keep for backward compatibility
       setIsModelLoading(false);
-      console.log("MoveNet MultiPose loaded successfully!");
+      console.log("Both MoveNet models loaded successfully!");
     } catch (error) {
-      console.error("Error loading MoveNet model:", error);
+      console.error("Error loading MoveNet models:", error);
       setIsModelLoading(false);
       setError("Không thể tải mô hình MoveNet. Vui lòng thử lại.");
     }
@@ -146,9 +163,14 @@ export default function PoseCapture() {
     setIsWebcamActive(false);
   };
 
-  // Capture image and send to server
+  // Capture image and detect poses with two-stage detection
   const captureImage = async () => {
     if (!isWebcamActive || isCapturing) return;
+
+    if (!multiPoseDetector || !singlePoseDetector) {
+      setError("Mô hình MoveNet chưa được tải. Vui lòng thử lại.");
+      return;
+    }
 
     try {
       setIsCapturing(true);
@@ -158,24 +180,48 @@ export default function PoseCapture() {
       const canvas = canvasRef.current;
       const imageData = canvas.toDataURL("image/png");
 
-      // Send to server for pose detection
-      const poseData = await poseApi.detectPoses(imageData);
+      // Create image element for MoveNet processing
+      const img = new Image();
+      await new Promise((resolve, reject) => {
+        img.onload = resolve;
+        img.onerror = reject;
+        img.src = imageData;
+      });
+
+      // Use two-stage detection
+      const poses = await detectPosesTwoStage(img);
+
+      // Create analysis data
+      const analysis = {
+        total_poses: poses.length,
+        confidence:
+          poses.length > 0
+            ? poses.reduce((sum, pose) => sum + pose.score, 0) / poses.length
+            : 0,
+        detection_time: "0.2s",
+        model: "Two-Stage: MultiPose + SinglePose Thunder",
+        detection_method: "Bbox Detection + Precise Pose",
+        bbox_count: poses.filter((p) => p.bbox).length,
+      };
 
       // Add to captured images with analysis
       const newCapture = {
         id: Date.now(),
         image: imageData,
         timestamp: new Date().toISOString(),
-        poses: poseData.poses || [],
-        analysis: poseData.analysis || {},
+        poses: poses,
+        analysis: analysis,
         sessionId: currentSession?.id,
+        source: "camera",
       };
 
       setCapturedImages((prev) => [...prev, newCapture]);
       setIsCapturing(false);
+
+      console.log("Two-stage poses detected from camera:", poses);
     } catch (error) {
       console.error("Error capturing image:", error);
-      setError("Lỗi khi chụp ảnh hoặc gửi lên server. Vui lòng thử lại.");
+      setError("Lỗi khi chụp ảnh hoặc xử lý tư thế. Vui lòng thử lại.");
       setIsCapturing(false);
     }
   };
@@ -224,9 +270,9 @@ export default function PoseCapture() {
     setSelectedImageDetail(null);
   };
 
-  // Process uploaded image with MoveNet
+  // Process uploaded image with two-stage detection
   const processUploadedImage = async (file) => {
-    if (!moveNetDetector) {
+    if (!multiPoseDetector || !singlePoseDetector) {
       setError("Mô hình MoveNet chưa được tải. Vui lòng thử lại.");
       return;
     }
@@ -245,17 +291,9 @@ export default function PoseCapture() {
         img.src = imageUrl;
       });
 
-      // Detect poses using MoveNet
-      const poses = await moveNetDetector.estimatePoses(img, {
-        flipHorizontal: false,
-        maxPoses: 2,
-        scoreThreshold: 0.1,
-        nmsRadius: 20,
-        multiPoseMaxDimension: 256,
-        enableSmoothing: true,
-        enableTracking: true,
-      });
-      console.log(poses);
+      // Use two-stage detection
+      const poses = await detectPosesTwoStage(img);
+      console.log("Two-stage detection results:", poses);
 
       // Convert image to data URL
       const canvas = document.createElement("canvas");
@@ -272,8 +310,10 @@ export default function PoseCapture() {
           poses.length > 0
             ? poses.reduce((sum, pose) => sum + pose.score, 0) / poses.length
             : 0,
-        detection_time: "0.1s",
-        model: "MoveNet MultiPose Lightning",
+        detection_time: "0.2s",
+        model: "Two-Stage: MultiPose + SinglePose Thunder",
+        detection_method: "Bbox Detection + Precise Pose",
+        bbox_count: poses.filter((p) => p.bbox).length,
       };
 
       // Create capture object
@@ -310,6 +350,121 @@ export default function PoseCapture() {
     } else {
       setError("Vui lòng chọn file ảnh hợp lệ.");
     }
+  };
+
+  // Two-stage detection: MultiPose for bbox, SinglePose for precise detection
+  const detectPosesTwoStage = async (img) => {
+    if (!multiPoseDetector || !singlePoseDetector) {
+      throw new Error("Models not loaded");
+    }
+
+    // Stage 1: Detect bounding boxes using MultiPose
+    const multiPoseResults = await multiPoseDetector.estimatePoses(img, {
+      flipHorizontal: false,
+      maxPoses: 2,
+      scoreThreshold: 0.1,
+      nmsRadius: 20,
+      multiPoseMaxDimension: 256,
+      enableSmoothing: true,
+      enableTracking: true,
+    });
+
+    console.log("MultiPose bbox results:", multiPoseResults);
+
+    if (multiPoseResults.length === 0) {
+      return [];
+    }
+
+    // Stage 2: Use SinglePose Thunder on each detected person
+    const finalPoses = [];
+
+    for (let i = 0; i < multiPoseResults.length; i++) {
+      const bboxPose = multiPoseResults[i];
+
+      // Calculate bounding box from keypoints
+      const keypoints = bboxPose.keypoints;
+      if (keypoints.length === 0) continue;
+
+      // Find min/max coordinates
+      let minX = Infinity,
+        minY = Infinity,
+        maxX = -Infinity,
+        maxY = -Infinity;
+      let validKeypoints = 0;
+
+      keypoints.forEach((kp) => {
+        if (kp.score > 0.1) {
+          minX = Math.min(minX, kp.x);
+          minY = Math.min(minY, kp.y);
+          maxX = Math.max(maxX, kp.x);
+          maxY = Math.max(maxY, kp.y);
+          validKeypoints++;
+        }
+      });
+
+      if (validKeypoints < 3) continue; // Need at least 3 valid keypoints
+
+      // Add padding to bounding box
+      const padding = 70;
+      const bbox = {
+        x: Math.max(0, minX - padding),
+        y: Math.max(0, minY - padding),
+        width: Math.min(
+          img.naturalWidth - (minX - padding),
+          maxX - minX + 2 * padding
+        ),
+        height: Math.min(
+          img.naturalHeight - (minY - padding),
+          maxY - minY + 2 * padding
+        ),
+      };
+
+      // Crop image to bounding box
+      const canvas = document.createElement("canvas");
+      const ctx = canvas.getContext("2d");
+      canvas.width = bbox.width;
+      canvas.height = bbox.height;
+
+      ctx.drawImage(
+        img,
+        bbox.x,
+        bbox.y,
+        bbox.width,
+        bbox.height,
+        0,
+        0,
+        bbox.width,
+        bbox.height
+      );
+
+      // Stage 2: Detect precise pose using SinglePose Thunder
+      const singlePoseResults = await singlePoseDetector.estimatePoses(canvas, {
+        flipHorizontal: false,
+        scoreThreshold: 0.1,
+        enableSmoothing: true,
+        enableTracking: true,
+      });
+
+      if (singlePoseResults.length > 0) {
+        const precisePose = singlePoseResults[0];
+
+        // Transform coordinates back to original image space
+        const transformedKeypoints = precisePose.keypoints.map((kp) => ({
+          ...kp,
+          x: kp.x + bbox.x,
+          y: kp.y + bbox.y,
+        }));
+
+        finalPoses.push({
+          ...precisePose,
+          keypoints: transformedKeypoints,
+          bbox: bbox,
+          originalIndex: i,
+        });
+      }
+    }
+
+    return finalPoses;
   };
 
   // Check server status
@@ -567,9 +722,9 @@ export default function PoseCapture() {
                   }`}
                 ></div>
                 <span className="text-sm">
-                  MoveNet Model:{" "}
-                  {moveNetDetector
-                    ? "Đã Sẵn Sàng"
+                  MoveNet Models:{" "}
+                  {multiPoseDetector && singlePoseDetector
+                    ? "MultiPose + SinglePose - Đã Sẵn Sàng"
                     : isModelLoading
                     ? "Đang Tải..."
                     : "Chưa Tải"}
@@ -639,7 +794,9 @@ export default function PoseCapture() {
               {isWebcamActive && (
                 <button
                   onClick={captureImage}
-                  disabled={isCapturing || serverStatus !== "connected"}
+                  disabled={
+                    isCapturing || !multiPoseDetector || !singlePoseDetector
+                  }
                   className="bg-blue-500 hover:bg-blue-600 disabled:bg-gray-500 text-white px-6 py-3 rounded-lg font-medium transition-colors flex items-center space-x-2"
                 >
                   {isCapturing ? (
@@ -662,14 +819,20 @@ export default function PoseCapture() {
                   type="file"
                   accept="image/*"
                   onChange={handleFileUpload}
-                  disabled={!moveNetDetector || isProcessingUpload}
+                  disabled={
+                    !multiPoseDetector ||
+                    !singlePoseDetector ||
+                    isProcessingUpload
+                  }
                   className="hidden"
                   id="image-upload"
                 />
                 <label
                   htmlFor="image-upload"
                   className={`${
-                    !moveNetDetector || isProcessingUpload
+                    !multiPoseDetector ||
+                    !singlePoseDetector ||
+                    isProcessingUpload
                       ? "bg-gray-500 cursor-not-allowed"
                       : "bg-purple-500 hover:bg-purple-600 cursor-pointer"
                   } text-white px-6 py-3 rounded-lg font-medium transition-colors flex items-center space-x-2`}
@@ -776,6 +939,26 @@ export default function PoseCapture() {
                           Camera Đang Hoạt Động
                         </span>
                       </div>
+                      <div className="flex items-center space-x-2">
+                        <div
+                          className={`w-2 h-2 rounded-full ${
+                            multiPoseDetector && singlePoseDetector
+                              ? "bg-green-400"
+                              : "bg-yellow-400"
+                          }`}
+                        ></div>
+                        <span
+                          className={
+                            multiPoseDetector && singlePoseDetector
+                              ? "text-green-400"
+                              : "text-yellow-400"
+                          }
+                        >
+                          {multiPoseDetector && singlePoseDetector
+                            ? "Two-Stage Sẵn Sàng"
+                            : "Đang Tải Models"}
+                        </span>
+                      </div>
                       {capturedImages.length > 0 && (
                         <div className="text-blue-400">
                           {capturedImages.length} ảnh đã chụp
@@ -869,11 +1052,8 @@ export default function PoseCapture() {
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50">
           <div className="bg-gray-800 rounded-2xl p-6 max-w-md w-full mx-4 border border-gray-700">
             <h3 className="text-xl font-bold mb-4 text-center text-white">
-              🏆 Chọn Loại Huấn Luyện
+              🏆 Chọn Bài Huấn Luyện
             </h3>
-            <p className="text-gray-300 text-center mb-6">
-              Chọn loại huấn luyện phù hợp với trình độ của bạn
-            </p>
 
             <div className="space-y-3 mb-6">
               {trainingTypes.map((type) => (
@@ -885,9 +1065,9 @@ export default function PoseCapture() {
                   <div className="font-semibold text-white mb-1">
                     {type.name}
                   </div>
-                  <div className="text-sm text-gray-300">
+                  {/* <div className="text-sm text-gray-300">
                     {type.description}
-                  </div>
+                  </div> */}
                 </button>
               ))}
             </div>
