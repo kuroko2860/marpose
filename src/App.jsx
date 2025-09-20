@@ -1,9 +1,9 @@
-import FightTrainer from "./components/FightTrainer";
+import PoseCapture from "./components/PoseCapture";
 
 function App() {
   return (
     <div className="App">
-      <FightTrainer />
+      <PoseCapture />
     </div>
   );
 }

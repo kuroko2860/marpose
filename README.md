@@ -1,77 +1,122 @@
-# 🥋 Fight Trainer AI
+# 📸 Pose Capture & Analysis
 
-A real-time martial arts action analysis application that uses computer vision to detect and analyze fighting movements between two people (attacker and defender).
+A React application for manual pose capture and server-side analysis using AI.
 
 ## ✨ Features
 
-- **Real-time Pose Detection**: Uses MoveNet for accurate pose estimation
-- **Skeleton Visualization**: Live skeleton overlay on webcam feed with color-coded roles
-- **Action Recognition**: Automatically detects and captures:
-  - 🦵 **Kicks** - High impact leg strikes
-  - 👊 **Punches** - Quick hand strikes
-  - 🛡️ **Blocks** - Defensive movements
-  - 💨 **Dodges** - Evasive maneuvers
-- **Smart Tracking**: SORT algorithm for consistent person tracking
-- **Beautiful UI**: Modern, responsive design with Tailwind CSS
-- **Action Gallery**: Captured moments with detailed popup views
-- **Live Statistics**: Real-time action counting and analysis
+- **Always-running Webcam**: Continuous camera feed for easy capture
+- **Manual Image Capture**: Single-click capture with instant analysis
+- **Server-side Processing**: Multi-pose detection via API calls
+- **Client-side Analysis**: Real-time response processing and display
+- **Training Session Management**: Organize captures by training sessions
+- **Image Storage & Review**: Save and review all captured images
+- **Server Status Monitoring**: Real-time connection status
 
 ## 🚀 Getting Started
 
-### Prerequisites
+### Client Setup
 
-- Node.js (v16 or higher)
-- Modern web browser with camera access
-- WebGL support for TensorFlow.js
-
-### Installation
-
-1. Clone the repository
-
-```bash
-git clone <your-repo-url>
-cd mart
-```
-
-2. Install dependencies
+1. Install dependencies:
 
 ```bash
 npm install
 ```
 
-3. Start the development server
+2. Start the development server:
 
 ```bash
 npm run dev
 ```
 
-4. Open your browser and navigate to `http://localhost:5173`
+3. Open your browser and navigate to `http://localhost:5173`
+
+### Server Setup (Example)
+
+1. Install Python dependencies:
+
+```bash
+pip install flask flask-cors opencv-python pillow numpy
+```
+
+2. Run the example server:
+
+```bash
+python server-example.py
+```
+
+The server will be available at `http://localhost:8000`
 
 ## 🎯 How It Works
 
-1. **Camera Setup**: The app requests webcam access and initializes the AI models
-2. **Pose Detection**: MoveNet analyzes each frame to detect human poses
-3. **Person Tracking**: SORT algorithm tracks individuals across frames
-4. **Role Assignment**: Automatically assigns "Defender" (blue) and "Attacker" (red) roles
-5. **Action Analysis**: Monitors joint angles and distances to detect specific movements
-6. **Capture & Store**: Automatically captures the best moments of each action type
-
-## 🎨 UI Features
-
-- **Dark Theme**: Professional dark interface with gradient backgrounds
-- **Responsive Design**: Works on desktop, tablet, and mobile devices
-- **Real-time Feedback**: Live status indicators and action notifications
-- **Interactive Gallery**: Click on captured actions to view full-size images
-- **Statistics Dashboard**: Beautiful cards showing action counts and totals
+1. **Start Camera**: Click "Start Camera" to begin webcam feed
+2. **Start Training Session**: Click "Start Training Session" to begin a new session
+3. **Capture Images**: Click "Capture Image" to manually capture and analyze poses
+4. **Server Processing**: Images are sent to server for multi-pose detection
+5. **Client Analysis**: Results are displayed with pose data and analysis
+6. **Review Results**: View captured images with pose analysis in the right panel
+7. **Reset Session**: Click "Reset Session" to clear all captured images
 
 ## 🔧 Technical Stack
 
 - **React 19** - Modern React with hooks
 - **Vite** - Fast build tool and dev server
-- **TensorFlow.js** - Machine learning in the browser
-- **MoveNet** - Google's pose detection model
-- **SORT** - Simple Online and Realtime Tracking
 - **Tailwind CSS** - Utility-first CSS framework
+- **Flask** - Python web framework (server example)
+- **OpenCV** - Computer vision library (server example)
+
+## 📡 API Endpoints
+
+The client communicates with the server via these endpoints:
+
+- `GET /status` - Check server status
+- `POST /detect-poses` - Send image for pose detection
+
+## 📋 Server Response Format
+
+```json
+{
+  "poses": [
+    {
+      "id": 1,
+      "keypoints": [{ "x": 100, "y": 100, "score": 0.9 }],
+      "score": 0.85
+    }
+  ],
+  "analysis": {
+    "total_poses": 1,
+    "confidence": 0.85,
+    "detection_time": "0.1s"
+  },
+  "success": true
+}
+```
+
+## ⚙️ Configuration
+
+Update the API base URL in `src/services/poseApi.js`:
+
+```javascript
+const API_BASE_URL = "http://localhost:8000"; // Your server URL
+```
+
+## 🗑️ Features Removed
+
+The following features from the original app have been removed:
+
+- Automatic pose detection and action recognition
+- Role selection (attacker/defender)
+- Real-time action feedback
+- Complex pose analysis algorithms
+- Video upload functionality
+- TensorFlow.js dependencies
+
+## 🏗️ New Architecture
+
+- **Simplified UI**: Focus on capture and review
+- **Server-side Processing**: All pose detection happens on the server
+- **Manual Capture**: User controls when to capture images
+- **Session Management**: Organize captures by training sessions
+- **API-based**: Clean separation between client and server
 
 ## 📱 Browser Compatibility
 
