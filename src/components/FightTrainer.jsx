@@ -392,19 +392,10 @@ export default function FightTrainer() {
       setShowRoleSelection(false);
       setIsTrainingActive(true);
 
-      // Resume video/webcam playback if it was paused for role selection
-      if (videoPausedForRoleSelection && videoRef.current) {
-        if (isVideoUploaded) {
-          // Resume video playback
-          videoRef.current.play();
-        } else {
-          // Resume webcam by restarting the stream
-          if (videoTrack.current) {
-            const stream = videoTrack.current;
-            videoRef.current.srcObject = stream;
-            videoTrack.current = null;
-          }
-        }
+      // Resume video playback if it was paused for role selection (only for video upload)
+      if (videoPausedForRoleSelection && videoRef.current && isVideoUploaded) {
+        // Resume video playback
+        videoRef.current.play();
         setIsVideoPaused(false);
         setVideoPausedForRoleSelection(false);
       }
@@ -495,7 +486,9 @@ export default function FightTrainer() {
     // For camera mode, show role selection immediately (like video upload)
     // Don't check for 2 people here - let the detection loop handle it
     setShowRoleSelection(true);
-    setRoleSelectionWarning("Đang chờ phát hiện 2 người để chọn vai trò...");
+    setRoleSelectionWarning(
+      "Đang chờ phát hiện 2 người để chọn vai trò... (Webcam vẫn chạy)"
+    );
   };
 
   const processAction = (type, condition, metric, feedback = null) => {
@@ -603,7 +596,7 @@ export default function FightTrainer() {
             }
           }
 
-          // For webcam mode, pause on first frame with 2 people for role selection (like video upload)
+          // For webcam mode, show role selection without pausing the webcam
           if (
             !isVideoUploaded &&
             showRoleSelection &&
@@ -611,21 +604,9 @@ export default function FightTrainer() {
             !videoPausedForRoleSelection &&
             filteredPoses.length >= 2
           ) {
-            // Pause webcam by stopping the video stream temporarily
-            const video = videoRef.current;
-            if (video && video.srcObject) {
-              const stream = video.srcObject;
-              const tracks = stream.getTracks();
-              tracks.forEach((track) => track.stop());
-
-              // Store the stream for later resumption
-              videoTrack.current = stream;
-
-              setIsVideoPaused(true);
-              setVideoPausedForRoleSelection(true);
-              setAvailablePoses(filteredPoses.filter((p) => p.id));
-              setRoleSelectionWarning(""); // Clear the waiting message
-            }
+            // Keep webcam running and just show role selection
+            setAvailablePoses(filteredPoses.filter((p) => p.id));
+            setRoleSelectionWarning(""); // Clear the waiting message
           }
 
           // Draw skeleton on canvas (always show, even with fewer people)
@@ -965,7 +946,7 @@ export default function FightTrainer() {
                             : isVideoUploaded
                             ? "Video đang phát - Nhấn 'Bắt Đầu Huấn Luyện' để tạm dừng chọn vai trò"
                             : showRoleSelection
-                            ? "Đang chờ phát hiện 2 người để chọn vai trò..."
+                            ? "Đang chờ phát hiện 2 người để chọn vai trò... (Webcam vẫn chạy)"
                             : 'Nhấn "Bắt Đầu Huấn Luyện" để chọn vai trò và bắt đầu phân tích'}
                         </div>
                       )}
@@ -1055,6 +1036,13 @@ export default function FightTrainer() {
                           <span className="block text-xs text-blue-400 mt-1">
                             📹 Camera đang hoạt động - Đang chờ phát hiện 2
                             người
+                          </span>
+                        )}
+                      {!videoPausedForRoleSelection &&
+                        showRoleSelection &&
+                        availablePoses.length >= 2 && (
+                          <span className="block text-xs text-green-400 mt-1">
+                            📹 Camera vẫn chạy - Chọn người phòng thủ để bắt đầu
                           </span>
                         )}
                     </p>

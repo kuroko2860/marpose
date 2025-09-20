@@ -3,12 +3,12 @@ import { distance, angle } from "./utils";
 // Simple pose analysis for martial arts action detection
 export class PoseAnalyzer {
   constructor() {
-    // Balanced thresholds for better accuracy
+    // Simple signature rules - only 1 rule per pose type
     this.thresholds = {
-      kick: { kneeAngle: 150, footDistance: 100, footHeight: 30 }, // Less difficult
-      punch: { elbowAngle: 130, wristDistance: 80, armExtension: 25 }, // Less difficult
-      block: { armDistance: 60, peopleDistance: 120 }, // Add distance consideration
-      dodge: { lateralShift: 40, peopleDistance: 120 } // Add distance consideration
+      kick: { footHeight: 20 }, // Signature: foot raised above hip
+      punch: { wristDistance: 150 }, // Signature: wrist close to attacker
+      block: { shoulderAngle: 120 }, // Signature: shoulder angle > 120°
+      dodge: { lateralShift: 30 } // Signature: lateral body movement
     };
 
     // Track consecutive frames for each action
@@ -292,192 +292,106 @@ export class PoseAnalyzer {
     return "Chậm";
   }
 
-  // Critical kick detection - requires multiple criteria
+  // Simple kick detection - only foot height signature
   detectKick(defenderPose, attackerPose) {
     if (!defenderPose || !attackerPose) return false;
 
     const defenderKp = defenderPose.keypoints;
-    const attackerKp = attackerPose.keypoints;
 
-    // Additional validation: ensure poses are in reasonable fighting stance
-    const defenderHipDistance = Math.abs(defenderKp[11].x - defenderKp[12].x);
-    const attackerHipDistance = Math.abs(attackerKp[11].x - attackerKp[12].x);
-    
-    // Skip if poses are too close together (not in fighting stance)
-    if (defenderHipDistance < 20 || attackerHipDistance < 20) return false;
+    // Simple validation: check if key points exist
+    if (!defenderKp[11] || !defenderKp[12] || !defenderKp[15] || !defenderKp[16]) return false;
 
-    // Check both legs for kick detection
+    // Check both feet for kick detection - simple foot height only
     const leftHip = defenderKp[11];
-    const leftKnee = defenderKp[13];
     const leftAnkle = defenderKp[15];
-    
     const rightHip = defenderKp[12];
-    const rightKnee = defenderKp[14];
     const rightAnkle = defenderKp[16];
 
-    // Check left leg kick with multiple criteria
-    const leftKneeAngle = angle(leftHip, leftKnee, leftAnkle);
+    // Simple kick detection - only check foot height (signature rule)
     const leftFootHeight = leftHip.y - leftAnkle.y;
-    const leftFootDistance = distance(leftAnkle, attackerKp[0]); // Distance to attacker's head
-    
-    // Check right leg kick with multiple criteria
-    const rightKneeAngle = angle(rightHip, rightKnee, rightAnkle);
     const rightFootHeight = rightHip.y - rightAnkle.y;
-    const rightFootDistance = distance(rightAnkle, attackerKp[0]); // Distance to attacker's head
 
-    // Balanced kick detection - must meet key criteria:
-    // 1. Knee must be reasonably bent (straight leg)
-    // 2. Foot must be raised (movement)
-    // 3. Foot must be close to attacker (targeting)
-    const leftKick = leftKneeAngle > this.thresholds.kick.kneeAngle && 
-                     leftFootHeight > this.thresholds.kick.footHeight &&
-                     leftFootDistance < this.thresholds.kick.footDistance;
-                     
-    const rightKick = rightKneeAngle > this.thresholds.kick.kneeAngle && 
-                      rightFootHeight > this.thresholds.kick.footHeight &&
-                      rightFootDistance < this.thresholds.kick.footDistance;
+    const leftKick = leftFootHeight > this.thresholds.kick.footHeight;
+    const rightKick = rightFootHeight > this.thresholds.kick.footHeight;
 
     return leftKick || rightKick;
   }
 
-  // Critical punch detection - requires multiple criteria
+  // Simple punch detection - only wrist distance signature
   detectPunch(defenderPose, attackerPose) {
     if (!defenderPose || !attackerPose) return false;
 
     const defenderKp = defenderPose.keypoints;
     const attackerKp = attackerPose.keypoints;
 
-    // Additional validation: ensure poses are in reasonable fighting stance
-    const defenderHipDistance = Math.abs(defenderKp[11].x - defenderKp[12].x);
-    const attackerHipDistance = Math.abs(attackerKp[11].x - attackerKp[12].x);
-    
-    // Skip if poses are too close together (not in fighting stance)
-    if (defenderHipDistance < 20 || attackerHipDistance < 20) return false;
+    // Simple validation: check if key points exist
+    if (!defenderKp[9] || !defenderKp[10] || !attackerKp[0]) return false;
 
-    // Check both arms for punch detection
-    const leftShoulder = attackerKp[5];
-    const leftElbow = attackerKp[7];
-    const leftWrist = attackerKp[9];
-    
-    const rightShoulder = attackerKp[6];
-    const rightElbow = attackerKp[8];
-    const rightWrist = attackerKp[10];
-    
-    const defenderHead = defenderKp[0]; // nose
+    // Check both wrists for punch detection - simple distance only
+    const leftWrist = defenderKp[9];
+    const rightWrist = defenderKp[10];
+    const attackerHead = attackerKp[0]; // nose
 
-    // Check left arm punch with multiple criteria
-    const leftElbowAngle = angle(leftShoulder, leftElbow, leftWrist);
-    const leftWristDistance = distance(leftWrist, defenderHead);
-    const leftArmExtension = leftWrist.x - leftShoulder.x; // How far arm extends forward
-    const leftArmHeight = Math.abs(leftWrist.y - leftShoulder.y); // Arm height difference
-    
-    // Check right arm punch with multiple criteria
-    const rightElbowAngle = angle(rightShoulder, rightElbow, rightWrist);
-    const rightWristDistance = distance(rightWrist, defenderHead);
-    const rightArmExtension = rightWrist.x - rightShoulder.x; // How far arm extends forward
-    const rightArmHeight = Math.abs(rightWrist.y - rightShoulder.y); // Arm height difference
+    // Simple punch detection - only check wrist distance (signature rule)
+    const leftWristDistance = distance(leftWrist, attackerHead);
+    const rightWristDistance = distance(rightWrist, attackerHead);
 
-    // Balanced punch detection - must meet key criteria:
-    // 1. Elbow must be reasonably extended (straight arm)
-    // 2. Wrist must be close to defender (targeting)
-    // 3. Arm must be extended forward (movement)
-    // 4. Arm should be at reasonable height (not too high/low)
-    const leftPunch = leftElbowAngle > this.thresholds.punch.elbowAngle && 
-                      leftWristDistance < this.thresholds.punch.wristDistance &&
-                      leftArmExtension > this.thresholds.punch.armExtension &&
-                      leftArmHeight < 120; // Slightly more lenient height
-                      
-    const rightPunch = rightElbowAngle > this.thresholds.punch.elbowAngle && 
-                       rightWristDistance < this.thresholds.punch.wristDistance &&
-                       rightArmExtension > this.thresholds.punch.armExtension &&
-                       rightArmHeight < 120; // Slightly more lenient height
+    const leftPunch = leftWristDistance < this.thresholds.punch.wristDistance;
+    const rightPunch = rightWristDistance < this.thresholds.punch.wristDistance;
 
     return leftPunch || rightPunch;
   }
 
-  // Block detection with distance consideration
+  // Simple block detection - only shoulder angle signature
   detectBlock(defenderPose, attackerPose) {
     if (!defenderPose || !attackerPose) return false;
 
     const defenderKp = defenderPose.keypoints;
-    const attackerKp = attackerPose.keypoints;
 
-    // Check distance between two people - must be close for realistic blocking
-    const defenderCenter = {
-      x: (defenderKp[11].x + defenderKp[12].x) / 2,
-      y: (defenderKp[11].y + defenderKp[12].y) / 2
-    };
-    const attackerCenter = {
-      x: (attackerKp[11].x + attackerKp[12].x) / 2,
-      y: (attackerKp[11].y + attackerKp[12].y) / 2
-    };
-    const peopleDistance = distance(defenderCenter, attackerCenter);
+    // Simple validation: check if key points exist
+    if (!defenderKp[5] || !defenderKp[6] || !defenderKp[7] || !defenderKp[8] || !defenderKp[9] || !defenderKp[10]) return false;
 
-    // Skip if people are too far apart for realistic blocking
-    if (peopleDistance > this.thresholds.block.peopleDistance) return false;
-
-    // Check both arms for block detection
+    // Check both arms for block detection - simple shoulder angle only
+    const leftShoulder = defenderKp[5];
+    const leftElbow = defenderKp[7];
     const leftWrist = defenderKp[9];
+    const rightShoulder = defenderKp[6];
+    const rightElbow = defenderKp[8];
     const rightWrist = defenderKp[10];
-    const defenderHead = defenderKp[0]; // nose
 
-    // Check if either arm is near the head (blocking position)
-    const leftArmDistance = distance(leftWrist, defenderHead);
-    const rightArmDistance = distance(rightWrist, defenderHead);
-    
-    // Also check if arms are raised (blocking gesture)
-    const leftArmRaised = leftWrist.y < defenderHead.y + 50; // Arm above head level
-    const rightArmRaised = rightWrist.y < defenderHead.y + 50; // Arm above head level
+    // Simple block detection - only check shoulder angle (signature rule)
+    const leftShoulderAngle = angle(leftShoulder, leftElbow, leftWrist);
+    const rightShoulderAngle = angle(rightShoulder, rightElbow, rightWrist);
 
-    // Detect block if either arm is close to head or raised
-    const leftBlock = leftArmDistance < this.thresholds.block.armDistance || leftArmRaised;
-    const rightBlock = rightArmDistance < this.thresholds.block.armDistance || rightArmRaised;
+    const leftBlock = leftShoulderAngle > this.thresholds.block.shoulderAngle;
+    const rightBlock = rightShoulderAngle > this.thresholds.block.shoulderAngle;
 
     return leftBlock || rightBlock;
   }
 
-  // Dodge detection with distance consideration
+  // Simple dodge detection - only lateral shift signature
   detectDodge(defenderPose, attackerPose) {
     if (!defenderPose || !attackerPose) return false;
 
     const defenderKp = defenderPose.keypoints;
-    const attackerKp = attackerPose.keypoints;
 
-    // Check distance between two people - must be close for realistic dodging
-    const defenderCenter = {
-      x: (defenderKp[11].x + defenderKp[12].x) / 2,
-      y: (defenderKp[11].y + defenderKp[12].y) / 2
-    };
-    const attackerCenter = {
-      x: (attackerKp[11].x + attackerKp[12].x) / 2,
-      y: (attackerKp[11].y + attackerKp[12].y) / 2
-    };
-    const peopleDistance = distance(defenderCenter, attackerCenter);
-
-    // Skip if people are too far apart for realistic dodging
-    if (peopleDistance > this.thresholds.dodge.peopleDistance) return false;
+    // Simple validation: check if key points exist
+    if (!defenderKp[11] || !defenderKp[12]) return false;
 
     const leftHip = defenderKp[11];
     const rightHip = defenderKp[12];
 
+    // Set baseline if not set
     if (!this.defenderBaselineX) {
       this.setDefenderBaseline(defenderPose);
       return false;
     }
 
+    // Simple dodge detection - only check lateral shift (signature rule)
     const currentTorsoX = (leftHip.x + rightHip.x) / 2;
     const lateralShift = Math.abs(currentTorsoX - this.defenderBaselineX);
 
-    // Also check for any significant body movement (not just lateral)
-    const leftShoulder = defenderKp[5];
-    const rightShoulder = defenderKp[6];
-    const currentShoulderX = (leftShoulder.x + rightShoulder.x) / 2;
-    const shoulderShift = Math.abs(currentShoulderX - this.defenderBaselineX);
-
-    // Detect dodge if there's any significant movement (lateral or shoulder)
-    const bodyMovement = lateralShift > this.thresholds.dodge.lateralShift || shoulderShift > 20;
-
-    return bodyMovement;
+    return lateralShift > this.thresholds.dodge.lateralShift;
   }
 
   // Main analysis function - track consecutive frames
