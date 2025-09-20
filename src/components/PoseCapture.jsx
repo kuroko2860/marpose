@@ -1,9 +1,9 @@
 import React, { useEffect, useRef, useState } from "react";
 import * as posedetection from "@tensorflow-models/pose-detection";
 import * as tf from "@tensorflow/tfjs";
+import { trainingTypes, analyzePose, classifyAction, MIN_SCORE } from "./const";
 import "@tensorflow/tfjs-backend-webgl";
 import "@tensorflow/tfjs-backend-cpu";
-import { trainingTypes, MIN_SCORE } from "./const";
 
 export default function PoseCapture() {
   const videoRef = useRef(null);
@@ -26,6 +26,9 @@ export default function PoseCapture() {
   const [imageZoom, setImageZoom] = useState(1);
   const [multiPoseDetector, setMultiPoseDetector] = useState(null);
   const [singlePoseDetector, setSinglePoseDetector] = useState(null);
+  const [selectedPersonRoles, setSelectedPersonRoles] = useState({});
+  const [showRoleSelection, setShowRoleSelection] = useState(false);
+  const [defenderSelected, setDefenderSelected] = useState(null);
 
   // Initialize both MoveNet models
   const initializeMoveNet = async () => {
@@ -202,6 +205,15 @@ export default function PoseCapture() {
         bbox_count: poses.filter((p) => p.bbox).length,
       };
 
+      // Analyze defender pose if training session is active
+      let defenderAnalysis = null;
+      if (currentSession && currentSession.trainingType) {
+        defenderAnalysis = analyzeDefenderPose(
+          poses,
+          currentSession.trainingType
+        );
+      }
+
       // Add to captured images with analysis
       const newCapture = {
         id: Date.now(),
@@ -209,6 +221,7 @@ export default function PoseCapture() {
         timestamp: new Date().toISOString(),
         poses: poses,
         analysis: analysis,
+        defenderAnalysis: defenderAnalysis,
         sessionId: currentSession?.id,
         source: "camera",
       };
@@ -260,12 +273,144 @@ export default function PoseCapture() {
     setSelectedImageDetail(capture);
     setShowImageDetailModal(true);
     setImageZoom(1); // Reset zoom when opening modal
+    setSelectedPersonRoles({}); // Reset role selection
+    setShowRoleSelection(true); // Show role selection initially
+    setDefenderSelected(null); // Reset defender selection
   };
 
   // Close image detail modal
   const closeImageDetail = () => {
     setShowImageDetailModal(false);
     setSelectedImageDetail(null);
+    setSelectedPersonRoles({});
+    setShowRoleSelection(false);
+    setDefenderSelected(null);
+  };
+
+  // Handle defender selection
+  const selectDefender = (defenderIndex) => {
+    if (!selectedImageDetail || !selectedImageDetail.poses) return;
+
+    setDefenderSelected(defenderIndex);
+
+    // Assign roles: selected person is defender, others are attackers
+    const roles = {};
+    selectedImageDetail.poses.forEach((_, index) => {
+      roles[index] = index === defenderIndex ? "defender" : "attacker";
+    });
+
+    setSelectedPersonRoles(roles);
+
+    // Close role selection after a short delay
+    setTimeout(() => {
+      setShowRoleSelection(false);
+      redrawCanvas(false, roles);
+
+      // Analyze defender pose if training session is active
+      if (currentSession && currentSession.trainingType) {
+        const defenderAnalysis = analyzeDefenderPose(
+          selectedImageDetail.poses,
+          currentSession.trainingType
+        );
+        if (defenderAnalysis) {
+          // Update the selected image detail with defender analysis
+          setSelectedImageDetail((prev) => ({
+            ...prev,
+            defenderAnalysis: defenderAnalysis,
+          }));
+        }
+      }
+    }, 500);
+  };
+
+  // Analyze defender pose and classify all actions
+  const analyzeDefenderPose = (poses, trainingTypeId) => {
+    if (!poses || poses.length === 0) return null;
+
+    // Find the defender pose
+    const defenderIndex = Object.keys(selectedPersonRoles).find(
+      (index) => selectedPersonRoles[index] === "defender"
+    );
+
+    if (defenderIndex === undefined) return null;
+
+    const defenderPose = poses[parseInt(defenderIndex)];
+    if (!defenderPose || !defenderPose.keypoints) return null;
+
+    // Get training type details
+    const trainingType = trainingTypes.find((t) => t.id === trainingTypeId);
+    if (!trainingType) return null;
+
+    // Classify actions for all poses
+    const classifiedActions = poses.map((pose) => {
+      if (pose.keypoints) {
+        return classifyAction(pose.keypoints);
+      }
+      return { action: "unknown", confidence: 0 };
+    });
+
+    // Find attacker actions
+    const attackerActions = classifiedActions.filter(
+      (_, index) => selectedPersonRoles[index] === "attacker"
+    );
+
+    // Analyze defender pose based on detected action
+    const defenderActionClassification =
+      classifiedActions[parseInt(defenderIndex)];
+    const defenderAction = defenderActionClassification.action;
+
+    const analysis = analyzePose(defenderPose.keypoints, defenderAction);
+
+    return {
+      ...analysis,
+      trainingType: trainingType.name,
+      defenderAction: defenderAction,
+      attackerActions: attackerActions,
+      allClassifiedActions: classifiedActions,
+      defenderConfidence: defenderActionClassification.confidence,
+    };
+  };
+
+  // Redraw canvas when roles change
+  const redrawCanvas = (showRoleSelection, roles) => {
+    if (!selectedImageDetail) return;
+
+    const canvas = document.querySelector(".max-w-\\[700px\\]");
+    if (!canvas) return;
+
+    const ctx = canvas.getContext("2d");
+    const img = new Image();
+
+    img.onload = () => {
+      // Clear canvas
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      // Draw image
+      ctx.drawImage(img, 0, 0);
+
+      // Draw bounding boxes and skeletons
+      if (selectedImageDetail.poses && selectedImageDetail.poses.length > 0) {
+        drawBoundingBoxes(
+          ctx,
+          selectedImageDetail.poses,
+          canvas.width,
+          canvas.height
+        );
+        // Only draw skeletons if not in role selection mode
+        if (!showRoleSelection) {
+          drawPoseSkeleton(
+            ctx,
+            selectedImageDetail.poses,
+            canvas.width,
+            canvas.height,
+            true,
+            roles
+          );
+        }
+      }
+    };
+
+    img.src = selectedImageDetail.image;
   };
 
   // Process uploaded image with two-stage detection
@@ -314,6 +459,15 @@ export default function PoseCapture() {
         bbox_count: poses.filter((p) => p.bbox).length,
       };
 
+      // Analyze defender pose if training session is active
+      let defenderAnalysis = null;
+      if (currentSession && currentSession.trainingType) {
+        defenderAnalysis = analyzeDefenderPose(
+          poses,
+          currentSession.trainingType
+        );
+      }
+
       // Create capture object
       const newCapture = {
         id: Date.now(),
@@ -321,6 +475,7 @@ export default function PoseCapture() {
         timestamp: new Date().toISOString(),
         poses: poses,
         analysis: analysis,
+        defenderAnalysis: defenderAnalysis,
         sessionId: currentSession?.id,
         source: "upload",
       };
@@ -471,9 +626,13 @@ export default function PoseCapture() {
     poses,
     canvasWidth,
     canvasHeight,
-    isDetailView = false
+    isDetailView = false,
+    selectedPersonRoles
   ) => {
     if (!poses || poses.length === 0) return;
+
+    // Only draw skeletons if roles are assigned (not in role selection mode)
+    // if (showRoleSelection) return;
 
     // Adjust line width and keypoint size based on view type
     const lineWidth = isDetailView ? 6 : 2;
@@ -482,11 +641,23 @@ export default function PoseCapture() {
 
     poses.forEach((pose, index) => {
       const keypoints = pose.keypoints || [];
-      const isDefender = index === 0; // First pose is defender
 
-      // Choose colors based on pose
-      const skeletonColor = isDefender ? "#22c55e" : "#ef4444"; // Green for defender, Red for attacker
-      const keypointColor = isDefender ? "#16a34a" : "#dc2626";
+      // Determine role and colors based on assigned roles
+      let skeletonColor, keypointColor;
+
+      if (selectedPersonRoles[index] === "defender") {
+        // Green for defender
+        skeletonColor = "#22c55e";
+        keypointColor = "#16a34a";
+      } else if (selectedPersonRoles[index] === "attacker") {
+        // Red for attacker
+        skeletonColor = "#ef4444";
+        keypointColor = "#dc2626";
+      } else {
+        // Purple for unassigned roles
+        skeletonColor = "#8b5cf6";
+        keypointColor = "#7c3aed";
+      }
 
       // Draw skeleton connections (simplified MoveNet connections)
       const connections = [
@@ -565,7 +736,15 @@ export default function PoseCapture() {
 
       // Draw pose label with larger font for detail view
       if (keypoints[0] && keypoints[0].score > 0.3) {
-        const label = isDefender ? "DEFENDER" : "ATTACKER";
+        let label;
+        if (selectedPersonRoles[index] === "defender") {
+          label = "DEFENDER";
+        } else if (selectedPersonRoles[index] === "attacker") {
+          label = "ATTACKER";
+        } else {
+          label = "UNASSIGNED";
+        }
+
         ctx.fillStyle = skeletonColor;
         ctx.font = labelFontSize;
         ctx.textAlign = "center";
@@ -573,6 +752,69 @@ export default function PoseCapture() {
           label,
           keypoints[0].x,
           keypoints[0].y - (isDetailView ? 30 : 20)
+        );
+      }
+    });
+  };
+
+  // Draw bounding boxes and person IDs
+  const drawBoundingBoxes = (ctx, poses, canvasWidth, canvasHeight) => {
+    if (!poses || poses.length === 0) return;
+
+    poses.forEach((pose, index) => {
+      if (!pose.bbox) return;
+
+      const bbox = pose.bbox;
+      const personId = index + 1;
+
+      // Draw bounding box
+      ctx.strokeStyle = "#3b82f6"; // Blue color
+      ctx.lineWidth = 3;
+      ctx.strokeRect(bbox.x, bbox.y, bbox.width, bbox.height);
+
+      // Draw person ID background
+      const idText = `Person ${personId}`;
+      ctx.font = "bold 16px Arial";
+
+      // Use purple background for role selection mode
+      const isSelected = defenderSelected === index;
+      ctx.fillStyle = isSelected ? "#7c3aed" : "#8b5cf6"; // Purple background
+      const textMetrics = ctx.measureText(idText);
+      const textWidth = textMetrics.width + 16;
+      const textHeight = 24;
+
+      ctx.fillRect(bbox.x, bbox.y - textHeight, textWidth, textHeight);
+
+      // Draw person ID text
+      ctx.fillStyle = "#ffffff";
+      ctx.textAlign = "left";
+      ctx.fillText(idText, bbox.x + 8, bbox.y - 6);
+
+      // Draw role if assigned
+      if (selectedPersonRoles[index]) {
+        const role = selectedPersonRoles[index];
+        const roleText = role === "defender" ? "DEFENDER" : "ATTACKER";
+        const roleColor = role === "defender" ? "#22c55e" : "#ef4444";
+
+        ctx.fillStyle = roleColor;
+        ctx.font = "bold 14px Arial";
+        const roleMetrics = ctx.measureText(roleText);
+        const roleWidth = roleMetrics.width + 12;
+        const roleHeight = 20;
+
+        ctx.fillRect(
+          bbox.x + bbox.width - roleWidth,
+          bbox.y - textHeight - roleHeight,
+          roleWidth,
+          roleHeight
+        );
+
+        ctx.fillStyle = "#ffffff";
+        ctx.textAlign = "center";
+        ctx.fillText(
+          roleText,
+          bbox.x + bbox.width - roleWidth / 2,
+          bbox.y - textHeight - 6
         );
       }
     });
@@ -643,18 +885,6 @@ export default function PoseCapture() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900 text-white">
-      {/* Header */}
-      {/* <div className="bg-black/20 backdrop-blur-sm border-b border-gray-700">
-        <div className="max-w-7xl mx-auto px-4 py-6">
-          <h1 className="text-3xl font-bold text-center bg-gradient-to-r from-blue-400 to-red-400 bg-clip-text text-transparent p-2">
-            📸 Phân tích tư thế võ thuật bằng AI
-          </h1>
-           <p className="text-center text-gray-300 mt-2">
-            Phân tích tư thế võ thuật bằng AI
-          </p> 
-        </div>
-      </div> */}
-
       <div className="max-w-7xl mx-auto px-4 py-8">
         {/* Status Indicators */}
         <div className="mb-6 grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -1062,33 +1292,6 @@ export default function PoseCapture() {
                   <h4 className="text-lg font-semibold text-white">
                     Ảnh với Skeleton Tư Thế
                   </h4>
-                  <div className="flex items-center space-x-2">
-                    <button
-                      onClick={() =>
-                        setImageZoom(Math.max(0.5, imageZoom - 0.25))
-                      }
-                      className="bg-gray-600 hover:bg-gray-500 text-white px-3 py-1 rounded text-sm transition-colors"
-                    >
-                      -
-                    </button>
-                    <span className="text-sm text-gray-300 min-w-[60px] text-center">
-                      {Math.round(imageZoom * 100)}%
-                    </span>
-                    <button
-                      onClick={() =>
-                        setImageZoom(Math.min(3, imageZoom + 0.25))
-                      }
-                      className="bg-gray-600 hover:bg-gray-500 text-white px-3 py-1 rounded text-sm transition-colors"
-                    >
-                      +
-                    </button>
-                    <button
-                      onClick={() => setImageZoom(1)}
-                      className="bg-blue-600 hover:bg-blue-500 text-white px-3 py-1 rounded text-sm transition-colors"
-                    >
-                      Reset
-                    </button>
-                  </div>
                 </div>
                 <div className="flex-1 bg-black overflow-auto">
                   <img
@@ -1108,18 +1311,29 @@ export default function PoseCapture() {
                       // Draw image
                       ctx.drawImage(img, 0, 0);
 
-                      // Draw pose skeleton with detail view settings
+                      // Draw bounding boxes first
                       if (
                         selectedImageDetail.poses &&
                         selectedImageDetail.poses.length > 0
                       ) {
-                        drawPoseSkeleton(
+                        drawBoundingBoxes(
                           ctx,
                           selectedImageDetail.poses,
                           canvas.width,
-                          canvas.height,
-                          true // Enable detail view mode
+                          canvas.height
                         );
+
+                        // Only draw pose skeleton if not in role selection mode
+                        if (!showRoleSelection) {
+                          drawPoseSkeleton(
+                            ctx,
+                            selectedImageDetail.poses,
+                            canvas.width,
+                            canvas.height,
+                            true, // Enable detail view mode
+                            selectedPersonRoles
+                          );
+                        }
                       }
 
                       // Replace image with canvas
@@ -1142,6 +1356,177 @@ export default function PoseCapture() {
                   </h4>
                 </div>
                 <div className="flex-1 overflow-y-auto p-4">
+                  {/* Role Selection */}
+                  {showRoleSelection &&
+                    selectedImageDetail.poses &&
+                    selectedImageDetail.poses.length > 0 && (
+                      <div className="bg-gray-700 rounded-lg p-4 mb-4">
+                        <h5 className="font-semibold text-white mb-3">
+                          🛡️ Chọn Defender
+                        </h5>
+                        <div className="mb-3 p-2 bg-purple-500/20 border border-purple-500/50 rounded text-sm text-purple-400">
+                          💜 Chọn người nào là Defender. Người còn lại sẽ tự
+                          động là Attacker.
+                        </div>
+                        <div className="space-y-3">
+                          {selectedImageDetail.poses.map((pose, index) => (
+                            <div
+                              key={index}
+                              className={`border rounded-lg p-3 cursor-pointer transition-colors ${
+                                defenderSelected === index
+                                  ? "border-green-500 bg-green-500/10"
+                                  : "border-gray-600 hover:border-purple-500"
+                              }`}
+                              onClick={() => selectDefender(index)}
+                            >
+                              <div className="flex items-center space-x-2">
+                                <div
+                                  className={`w-4 h-4 rounded-full ${
+                                    defenderSelected === index
+                                      ? "bg-green-500"
+                                      : "bg-purple-500"
+                                  }`}
+                                ></div>
+                                <div className="text-sm text-gray-300">
+                                  Person {index + 1}
+                                </div>
+                                {defenderSelected === index && (
+                                  <div className="text-xs text-green-400 font-medium">
+                                    ✅ Selected as Defender
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                  {/* Defender Analysis */}
+                  {selectedImageDetail.defenderAnalysis && (
+                    <div className="bg-gray-700 rounded-lg p-4 mb-4">
+                      <h5 className="font-semibold text-white mb-3">
+                        🥋 Phân Tích Defender
+                      </h5>
+                      <div className="space-y-3">
+                        <div className="flex items-center justify-between">
+                          <span className="text-sm text-gray-300">
+                            Loại huấn luyện:
+                          </span>
+                          <span className="text-sm text-blue-400 font-medium">
+                            {selectedImageDetail.defenderAnalysis.trainingType}
+                          </span>
+                        </div>
+                        <div className="flex items-center justify-between">
+                          <span className="text-sm text-gray-300">
+                            Hành động Defender (AI):
+                          </span>
+                          <span className="text-sm text-green-400 font-medium">
+                            {selectedImageDetail.defenderAnalysis
+                              .defenderAction === "block"
+                              ? "Chặn"
+                              : selectedImageDetail.defenderAnalysis
+                                  .defenderAction === "dodge"
+                              ? "Né"
+                              : selectedImageDetail.defenderAnalysis
+                                  .defenderAction === "kick"
+                              ? "Đá"
+                              : selectedImageDetail.defenderAnalysis
+                                  .defenderAction === "punch"
+                              ? "Đấm"
+                              : "Không xác định"}
+                          </span>
+                        </div>
+                        <div className="flex items-center justify-between">
+                          <span className="text-sm text-gray-300">
+                            Độ tin cậy:
+                          </span>
+                          <span className="text-sm text-blue-400 font-medium">
+                            {Math.round(
+                              selectedImageDetail.defenderAnalysis
+                                .defenderConfidence * 100
+                            )}
+                            %
+                          </span>
+                        </div>
+                        {selectedImageDetail.defenderAnalysis.attackerActions &&
+                          selectedImageDetail.defenderAnalysis.attackerActions
+                            .length > 0 && (
+                            <div className="flex items-center justify-between">
+                              <span className="text-sm text-gray-300">
+                                Hành động Attacker (AI):
+                              </span>
+                              <span className="text-sm text-red-400 font-medium">
+                                {selectedImageDetail.defenderAnalysis.attackerActions
+                                  .map((action) =>
+                                    action.action === "kick"
+                                      ? "Đá"
+                                      : action.action === "punch"
+                                      ? "Đấm"
+                                      : action.action === "block"
+                                      ? "Chặn"
+                                      : action.action === "dodge"
+                                      ? "Né"
+                                      : "Không xác định"
+                                  )
+                                  .join(", ")}
+                              </span>
+                            </div>
+                          )}
+                        <div className="flex items-center justify-between">
+                          <span className="text-sm text-gray-300">
+                            Điểm số:
+                          </span>
+                          <span
+                            className={`text-sm font-medium ${
+                              selectedImageDetail.defenderAnalysis.score >= 0.8
+                                ? "text-green-400"
+                                : selectedImageDetail.defenderAnalysis.score >=
+                                  0.5
+                                ? "text-yellow-400"
+                                : "text-red-400"
+                            }`}
+                          >
+                            {Math.round(
+                              selectedImageDetail.defenderAnalysis.score * 100
+                            )}
+                            %
+                          </span>
+                        </div>
+                        <div className="mt-3 p-3 bg-gray-600 rounded-lg">
+                          <div className="text-sm text-white font-medium mb-2">
+                            Phản hồi:
+                          </div>
+                          <div className="text-sm text-gray-300">
+                            {selectedImageDetail.defenderAnalysis.feedback}
+                          </div>
+                        </div>
+                        {selectedImageDetail.defenderAnalysis.details &&
+                          selectedImageDetail.defenderAnalysis.details.length >
+                            0 && (
+                            <div className="mt-3">
+                              <div className="text-sm text-white font-medium mb-2">
+                                Chi tiết:
+                              </div>
+                              <ul className="space-y-1">
+                                {selectedImageDetail.defenderAnalysis.details.map(
+                                  (detail, index) => (
+                                    <li
+                                      key={index}
+                                      className="text-sm text-gray-300 flex items-center"
+                                    >
+                                      <span className="w-2 h-2 bg-blue-400 rounded-full mr-2"></span>
+                                      {detail}
+                                    </li>
+                                  )
+                                )}
+                              </ul>
+                            </div>
+                          )}
+                      </div>
+                    </div>
+                  )}
+
                   {/* Basic Info */}
                   <div className="bg-gray-700 rounded-lg p-4 mb-4">
                     <h5 className="font-semibold text-white mb-2">
@@ -1192,7 +1577,13 @@ export default function PoseCapture() {
                             >
                               <div className="text-sm text-blue-400 font-medium">
                                 Tư thế {index + 1}{" "}
-                                {index === 0 ? "(Defender)" : "(Attacker)"}
+                                {selectedPersonRoles[index]
+                                  ? `(${
+                                      selectedPersonRoles[index] === "defender"
+                                        ? "Defender"
+                                        : "Attacker"
+                                    })`
+                                  : "(Chưa chọn vai trò)"}
                               </div>
                               <div className="text-xs text-gray-300">
                                 Điểm số: {Math.round((pose.score || 0) * 100)}%
