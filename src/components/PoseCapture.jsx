@@ -36,9 +36,7 @@ export default function PoseCapture() {
 
     try {
       setIsModelLoading(true);
-      console.log(
-        "Initializing MoveNet MultiPose and BlazePose Thunder models..."
-      );
+      console.log("Initializing MoveNet models...");
 
       // Initialize TensorFlow.js backend
       await tf.ready();
@@ -67,13 +65,17 @@ export default function PoseCapture() {
           multiPoseMaxDimension: 256,
         }
       );
+
+      // Initialize SinglePose detector for precise pose detection
       const singlePose = await posedetection.createDetector(
-        posedetection.SupportedModels.BlazePose,
+        posedetection.SupportedModels.MoveNet,
         {
-          runtime: "tfjs",
-          modelType: "heavy",
-          refineLandmarks: true,
-          scoreThreshold: 0.1,
+          modelType: "SinglePose.Thunder",
+          enableTracking: true,
+          enableSmoothing: true,
+          flipHorizontal: false,
+          minPoseConfidence: 0.1,
+          minPartConfidence: 0.1,
         }
       );
 
@@ -81,9 +83,7 @@ export default function PoseCapture() {
       setSinglePoseDetector(singlePose);
       setMoveNetDetector(multiPose); // Keep for backward compatibility
       setIsModelLoading(false);
-      console.log(
-        "MoveNet MultiPose and BlazePose Thunder models loaded successfully!"
-      );
+      console.log("Both MoveNet models loaded successfully!");
     } catch (error) {
       console.error("Error loading AI models:", error);
       setIsModelLoading(false);
@@ -200,7 +200,7 @@ export default function PoseCapture() {
             ? poses.reduce((sum, pose) => sum + pose.score, 0) / poses.length
             : 0,
         detection_time: "0.2s",
-        model: "Two-Stage: MultiPose + BlazePose Thunder",
+        model: "Two-Stage: MultiPose + SinglePose Thunder",
         detection_method: "Bbox Detection + Precise Pose",
         bbox_count: poses.filter((p) => p.bbox).length,
       };
@@ -457,7 +457,7 @@ export default function PoseCapture() {
             ? poses.reduce((sum, pose) => sum + pose.score, 0) / poses.length
             : 0,
         detection_time: "0.2s",
-        model: "Two-Stage: MultiPose + BlazePose Thunder",
+        model: "Two-Stage: MultiPose + SinglePose Thunder",
         detection_method: "Bbox Detection + Precise Pose",
         bbox_count: poses.filter((p) => p.bbox).length,
       };
@@ -638,8 +638,8 @@ export default function PoseCapture() {
     // if (showRoleSelection) return;
 
     // Adjust line width and keypoint size based on view type
-    const lineWidth = 2;
-    const keypointRadius = 4;
+    const lineWidth = isDetailView ? 4 : 2;
+    const keypointRadius = isDetailView ? 6 : 4;
     const labelFontSize = isDetailView ? "bold 20px Arial" : "bold 14px Arial";
 
     poses.forEach((pose, index) => {
@@ -662,52 +662,24 @@ export default function PoseCapture() {
         keypointColor = "#7c3aed";
       }
 
-      // Draw skeleton connections (BlazePose 33 keypoints)
+      // Draw skeleton connections (simplified MoveNet connections)
       const connections = [
-        // Face outline (simplified for visibility)
-        // [0, 1],
-        // [1, 2],
-        // [2, 3],
-        // [3, 7], // Right eyebrow
-        // [7, 8],
-        // [8, 9],
-        // [9, 10],
-        // [10, 4], // Left eyebrow
-        // [4, 5],
-        // [5, 6],
-        // [6, 0], // Top of head
-
-        // Body (main pose skeleton)
-        [11, 12], // Shoulders
+        [0, 1],
+        [0, 2],
+        [1, 3],
+        [2, 4], // Head
+        [5, 6],
+        [5, 7],
+        [6, 8],
+        [7, 9],
+        [8, 10], // Arms
+        [5, 11],
+        [6, 12],
+        [11, 12], // Torso
         [11, 13],
-        [13, 15],
-        [15, 17],
-        [17, 19],
-        [19, 21],
-        [21, 15], // Right arm
         [12, 14],
-        [14, 16],
-        [16, 18],
-        [18, 20],
-        [20, 22],
-        [22, 16], // Left arm
-        [11, 23],
-        [12, 24],
-        [23, 24], // Torso
-        [23, 25],
-        [25, 27],
-        [27, 29],
-        [29, 31],
-        [31, 27], // Right leg
-        [24, 26],
-        [26, 28],
-        [28, 30],
-        [30, 32],
-        [32, 28], // Left leg
-
-        // Face to body connection
-        [0, 11],
-        [0, 12], // Head to shoulders
+        [13, 15],
+        [14, 16], // Legs
       ];
 
       // Draw skeleton with thicker lines for detail view
@@ -734,8 +706,8 @@ export default function PoseCapture() {
       });
 
       // Draw keypoints with larger size for detail view
-      keypoints.forEach((keypoint, idx) => {
-        if (keypoint && keypoint.score > MIN_SCORE && (idx == 0 || idx > 10)) {
+      keypoints.forEach((keypoint) => {
+        if (keypoint && keypoint.score > MIN_SCORE) {
           // Draw keypoint with gradient effect for detail view
           if (isDetailView) {
             const gradient = ctx.createRadialGradient(
@@ -766,7 +738,6 @@ export default function PoseCapture() {
       });
 
       // Draw pose label with larger font for detail view
-      // Use nose keypoint (index 0) for label positioning in BlazePose
       if (keypoints[0] && keypoints[0].score > 0.3) {
         let label;
         if (selectedPersonRoles[index] === "defender") {
