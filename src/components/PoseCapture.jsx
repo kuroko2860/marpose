@@ -638,8 +638,8 @@ export default function PoseCapture() {
     // if (showRoleSelection) return;
 
     // Adjust line width and keypoint size based on view type
-    const lineWidth = isDetailView ? 4 : 2;
-    const keypointRadius = isDetailView ? 6 : 4;
+    const lineWidth = 2;
+    const keypointRadius = 4;
     const labelFontSize = isDetailView ? "bold 20px Arial" : "bold 14px Arial";
 
     poses.forEach((pose, index) => {
