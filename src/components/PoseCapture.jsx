@@ -45,11 +45,8 @@ export default function PoseCapture() {
   // Initialize API service connection
   const initializeApiService = async () => {
     try {
-      console.log("Initializing API service...");
-
       // Connect to WebSocket
       poseApiService.connectWebSocket((data) => {
-        console.log("WebSocket callback triggered with data:", data);
         handlePoseResult(data);
       });
 
@@ -64,8 +61,6 @@ export default function PoseCapture() {
       if (isWebcamActive && status.isConnected) {
         startFrameStreaming();
       }
-
-      console.log("API service initialized successfully!");
     } catch (error) {
       console.error("Error initializing API service:", error);
       setError("Không thể kết nối đến API server. Vui lòng thử lại.");
@@ -74,8 +69,6 @@ export default function PoseCapture() {
 
   // Handle pose analysis results from WebSocket
   const handlePoseResult = (data) => {
-    console.log("Received pose result from server:", data);
-
     if (data && data.success) {
       // Transform API data format to frontend format
       const transformedPoses = (data.poses || []).map((pose) => ({
@@ -92,14 +85,8 @@ export default function PoseCapture() {
       }));
 
       // Update real-time poses for webcam canvas
-      console.log("Setting currentPoses to:", transformedPoses);
       setCurrentPoses(transformedPoses);
       currentPosesRef.current = transformedPoses;
-      console.log(
-        "setCurrentPoses called with",
-        transformedPoses.length,
-        "poses"
-      );
 
       // Create analysis data
       const analysis = {
@@ -200,9 +187,6 @@ export default function PoseCapture() {
       clearInterval(streamingInterval);
     }
 
-    console.log("Starting WebSocket frame streaming...");
-    let frameCount = 0;
-
     const interval = setInterval(async () => {
       if (canvasRef.current && isApiConnected) {
         try {
@@ -211,20 +195,7 @@ export default function PoseCapture() {
 
           // Convert to binary and send via WebSocket
           const binaryData = await convertToBinaryData(imageData, 0.8);
-          const success = await poseApiService.sendFrameForAnalysis(binaryData);
-
-          frameCount++;
-          if (frameCount % 30 === 0) {
-            // Log every 30 frames (3 seconds)
-            console.log(
-              `Sent ${frameCount} frames to WebSocket, last success:`,
-              success
-            );
-          }
-
-          if (!success) {
-            console.warn("Failed to send frame to WebSocket");
-          }
+          await poseApiService.sendFrameForAnalysis(binaryData);
         } catch (error) {
           console.error("Error streaming frame:", error);
         }
@@ -233,7 +204,6 @@ export default function PoseCapture() {
 
     setStreamingInterval(interval);
     setIsStreaming(true);
-    console.log("WebSocket frame streaming started");
   };
 
   // Stop streaming frames
@@ -241,7 +211,6 @@ export default function PoseCapture() {
     if (streamingInterval) {
       clearInterval(streamingInterval);
       setStreamingInterval(null);
-      console.log("WebSocket frame streaming stopped");
     }
     setIsStreaming(false);
   };
@@ -697,7 +666,6 @@ export default function PoseCapture() {
       // Draw real-time pose data if available
       const posesToDraw = currentPosesRef.current;
       if (posesToDraw && posesToDraw.length > 0) {
-        console.log("Drawing poses on canvas:", posesToDraw.length, "poses");
         // Draw bounding boxes
         drawBoundingBoxes(ctx, posesToDraw, canvas.width, canvas.height);
 
@@ -710,11 +678,6 @@ export default function PoseCapture() {
           false,
           {}
         );
-      } else {
-        // Debug: log when no poses are available
-        if (posesToDraw.length === 0) {
-          console.log("No poses to draw, currentPosesRef:", posesToDraw);
-        }
       }
 
       // Continue drawing
@@ -728,43 +691,6 @@ export default function PoseCapture() {
       drawVideoToCanvas();
     }
   }, [isWebcamActive]);
-
-  // Debug: Monitor currentPoses state changes
-  useEffect(() => {
-    console.log("currentPoses state changed:", currentPoses);
-  }, [currentPoses]);
-
-  // Test function to manually set poses (for debugging)
-  const testSetPoses = () => {
-    const testPoses = [
-      {
-        track_id: "test",
-        keypoints_2d: [
-          [100, 100],
-          [120, 80],
-          [80, 80],
-          [140, 90],
-          [60, 90],
-          [150, 200],
-          [50, 200],
-          [160, 220],
-          [40, 220],
-          [140, 180],
-          [60, 180],
-          [130, 150],
-          [70, 150],
-          [120, 250],
-          [80, 250],
-          [110, 280],
-          [90, 280],
-        ],
-        bbox: [30, 60, 140, 240],
-      },
-    ];
-    console.log("Testing with manual poses:", testPoses);
-    setCurrentPoses(testPoses);
-    currentPosesRef.current = testPoses;
-  };
 
   // Initialize API service on component mount
   useEffect(() => {
@@ -782,10 +708,8 @@ export default function PoseCapture() {
   // Monitor API connection and start streaming when available
   useEffect(() => {
     if (isApiConnected && isWebcamActive && !isStreaming) {
-      console.log("API connected, starting frame streaming...");
       startFrameStreaming();
     } else if (!isApiConnected && isStreaming) {
-      console.log("API disconnected, stopping frame streaming...");
       stopFrameStreaming();
     }
   }, [isApiConnected, isWebcamActive, isStreaming]);
@@ -795,7 +719,6 @@ export default function PoseCapture() {
     const connectionCheckInterval = setInterval(() => {
       const status = poseApiService.getConnectionStatus();
       if (status.isConnected !== isApiConnected) {
-        console.log("Connection status changed:", status.isConnected);
         setIsApiConnected(status.isConnected);
       }
     }, 2000); // Check every 2 seconds
@@ -859,16 +782,6 @@ export default function PoseCapture() {
             </div>
           </div>
         )}
-
-        {/* Debug Test Button */}
-        <div className="mb-6">
-          <button
-            onClick={testSetPoses}
-            className="bg-yellow-500 hover:bg-yellow-600 text-white px-4 py-2 rounded"
-          >
-            Test Set Poses (Debug)
-          </button>
-        </div>
 
         {/* Webcam Controls */}
         <div className="mb-8">

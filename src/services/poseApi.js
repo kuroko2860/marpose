@@ -28,7 +28,6 @@ class PoseApiService {
     }
 
     try {
-      console.log("Attempting to connect to WebSocket at:", this.wsUrl);
       this.onMessageCallback = onMessage;
       this.socket = io(this.wsUrl, {
         transports: ["websocket", "polling"], // Allow both transports
@@ -39,31 +38,23 @@ class PoseApiService {
       });
 
       this.socket.on("connect", () => {
-        console.log("Socket.IO connected to pose API at:", this.wsUrl);
-        console.log("Socket ID:", this.socket.id);
         this.isConnected = true;
         this.reconnectAttempts = 0;
       });
 
       this.socket.on("disconnect", (reason) => {
-        console.log("Socket.IO disconnected:", reason);
         this.isConnected = false;
       });
 
       this.socket.on("connect_error", (error) => {
         console.error("Socket.IO connection error:", error);
-        console.error("Failed to connect to:", this.wsUrl);
         this.isConnected = false;
       });
 
       // Handle pose results from server
       this.socket.on("pose_result", (data) => {
-        console.log("WebSocket received pose_result:", data);
         if (this.onMessageCallback) {
-          console.log("Calling onMessageCallback with data:", data);
           this.onMessageCallback(data);
-        } else {
-          console.warn("No onMessageCallback registered");
         }
       });
     } catch (error) {
@@ -84,7 +75,6 @@ class PoseApiService {
   // Send frame for real-time pose analysis
   async sendFrameForAnalysis(imageData) {
     if (!this.socket || !this.isConnected) {
-      console.warn("Socket.IO not connected - cannot send frame");
       return false;
     }
 
