@@ -1,9 +1,15 @@
 import React, { useEffect, useRef, useState } from "react";
-import * as posedetection from "@tensorflow-models/pose-detection";
-import * as tf from "@tensorflow/tfjs";
-import { trainingTypes, analyzePose, classifyAction, MIN_SCORE } from "./const";
-import "@tensorflow/tfjs-backend-webgl";
-import "@tensorflow/tfjs-backend-cpu";
+import { trainingTypes, analyzePose, classifyAction } from "./const";
+import PoseApiService from "../services/poseApi";
+import { convertToBinaryData } from "../utils/imageUtils";
+import ConnectionStatus from "./ConnectionStatus";
+import WebcamControls from "./WebcamControls";
+import VideoFeed from "./VideoFeed";
+import CapturedImages from "./CapturedImages";
+import TrainingTypeModal from "./TrainingTypeModal";
+import ImageDetailModal from "./ImageDetailModal";
+import SessionControls from "./SessionControls";
+import { drawPoseSkeleton, drawBoundingBoxes } from "./drawingUtils";
 
 export default function PoseCapture() {
   const videoRef = useRef(null);
@@ -21,73 +27,102 @@ export default function PoseCapture() {
   const [selectedImageDetail, setSelectedImageDetail] = useState(null);
   const [showImageDetailModal, setShowImageDetailModal] = useState(false);
   const [isProcessingUpload, setIsProcessingUpload] = useState(false);
-  const [moveNetDetector, setMoveNetDetector] = useState(null);
-  const [isModelLoading, setIsModelLoading] = useState(false);
   const [imageZoom, setImageZoom] = useState(1);
-  const [multiPoseDetector, setMultiPoseDetector] = useState(null);
-  const [singlePoseDetector, setSinglePoseDetector] = useState(null);
   const [selectedPersonRoles, setSelectedPersonRoles] = useState({});
   const [showRoleSelection, setShowRoleSelection] = useState(false);
   const [defenderSelected, setDefenderSelected] = useState(null);
 
-  // Initialize both MoveNet models
-  const initializeMoveNet = async () => {
-    if (multiPoseDetector && singlePoseDetector) return;
+  // API service states
+  const [poseApiService] = useState(() => new PoseApiService());
+  const [isApiConnected, setIsApiConnected] = useState(false);
+  const [isStreaming, setIsStreaming] = useState(false);
+  const [streamingInterval, setStreamingInterval] = useState(null);
 
+  // Real-time pose data from WebSocket
+  const [currentPoses, setCurrentPoses] = useState([]);
+  const currentPosesRef = useRef([]);
+
+  // Initialize API service connection
+  const initializeApiService = async () => {
     try {
-      setIsModelLoading(true);
-      console.log("Initializing MoveNet models...");
+      console.log("Initializing API service...");
 
-      // Initialize TensorFlow.js backend
-      await tf.ready();
-      try {
-        await tf.setBackend("webgl");
-        await tf.ready();
-        console.log("Using WebGL backend");
-      } catch (backendError) {
-        console.log("WebGL not available, falling back to CPU");
-        await tf.setBackend("cpu");
-        await tf.ready();
+      // Connect to WebSocket
+      poseApiService.connectWebSocket((data) => {
+        console.log("WebSocket callback triggered with data:", data);
+        handlePoseResult(data);
+      });
+
+      // Wait a bit for connection to establish
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+
+      // Check connection status
+      const status = poseApiService.getConnectionStatus();
+      setIsApiConnected(status.isConnected);
+
+      // If webcam is already active, start streaming
+      if (isWebcamActive && status.isConnected) {
+        startFrameStreaming();
       }
 
-      // Initialize MultiPose detector for bounding box detection
-      const multiPose = await posedetection.createDetector(
-        posedetection.SupportedModels.MoveNet,
-        {
-          modelType: "MultiPose.Lightning",
-          enableTracking: true,
-          enableSmoothing: true,
-          maxPoses: 2,
-          flipHorizontal: false,
-          minPoseConfidence: 0.1,
-          minPartConfidence: 0.1,
-          nmsRadius: 20,
-          multiPoseMaxDimension: 256,
-        }
-      );
-
-      // Initialize SinglePose detector for precise pose detection
-      const singlePose = await posedetection.createDetector(
-        posedetection.SupportedModels.MoveNet,
-        {
-          modelType: "SinglePose.Thunder",
-          enableTracking: true,
-          enableSmoothing: true,
-          flipHorizontal: false,
-          minPoseConfidence: 0.1,
-          minPartConfidence: 0.1,
-        }
-      );
-
-      setMultiPoseDetector(multiPose);
-      setSinglePoseDetector(singlePose);
-      setMoveNetDetector(multiPose); // Keep for backward compatibility
-      setIsModelLoading(false);
-      console.log("Both MoveNet models loaded successfully!");
+      console.log("API service initialized successfully!");
     } catch (error) {
-      console.error("Error loading AI models:", error);
-      setIsModelLoading(false);
-      setError("Không thể tải mô hình AI. Vui lòng thử lại.");
+      console.error("Error initializing API service:", error);
+      setError("Không thể kết nối đến API server. Vui lòng thử lại.");
+    }
+  };
+
+  // Handle pose analysis results from WebSocket
+  const handlePoseResult = (data) => {
+    console.log("Received pose result from server:", data);
+
+    if (data && data.success) {
+      // Transform API data format to frontend format
+      const transformedPoses = (data.poses || []).map((pose) => ({
+        ...pose,
+        // Keep original API format for drawing functions
+        keypoints_2d: pose.keypoints_2d,
+        bbox: pose.bbox,
+        // Add compatibility fields
+        keypoints: pose.keypoints_2d
+          ? pose.keypoints_2d.map(([x, y]) => ({ x, y, score: 1.0 }))
+          : [],
+        score: 1.0, // Assume high confidence for API data
+        track_id: pose.track_id,
+      }));
+
+      // Update real-time poses for webcam canvas
+      console.log("Setting currentPoses to:", transformedPoses);
+      setCurrentPoses(transformedPoses);
+      currentPosesRef.current = transformedPoses;
+      console.log(
+        "setCurrentPoses called with",
+        transformedPoses.length,
+        "poses"
+      );
+
+      // Create analysis data
+      const analysis = {
+        total_poses: transformedPoses.length,
+        confidence: transformedPoses.length > 0 ? 1.0 : 0, // API data assumed high confidence
+        detection_time: "Server Processing",
+        model: "Server AI Model",
+        detection_method: "Server-side Pose Detection",
+      };
+
+      // Update the latest capture with server analysis
+      setCapturedImages((prev) => {
+        const updated = [...prev];
+        const lastCapture = updated[updated.length - 1];
+        if (lastCapture && !lastCapture.serverAnalysis) {
+          lastCapture.poses = transformedPoses;
+          lastCapture.analysis = analysis;
+          lastCapture.defenderAnalysis = null; // Will be calculated when roles are assigned
+          lastCapture.isProcessing = false;
+          lastCapture.serverAnalysis = data; // Store original API response
+        }
+        return updated;
+      });
     }
   };
 
@@ -145,6 +180,11 @@ export default function PoseCapture() {
 
       setIsWebcamActive(true);
       setIsLoading(false);
+
+      // Start streaming frames to WebSocket if connected
+      if (isApiConnected) {
+        startFrameStreaming();
+      }
     } catch (error) {
       console.error("Error starting webcam:", error);
       setError(
@@ -154,6 +194,58 @@ export default function PoseCapture() {
     }
   };
 
+  // Start streaming frames to WebSocket
+  const startFrameStreaming = () => {
+    if (streamingInterval) {
+      clearInterval(streamingInterval);
+    }
+
+    console.log("Starting WebSocket frame streaming...");
+    let frameCount = 0;
+
+    const interval = setInterval(async () => {
+      if (canvasRef.current && isApiConnected) {
+        try {
+          const canvas = canvasRef.current;
+          const imageData = canvas.toDataURL("image/jpeg", 0.8);
+
+          // Convert to binary and send via WebSocket
+          const binaryData = await convertToBinaryData(imageData, 0.8);
+          const success = await poseApiService.sendFrameForAnalysis(binaryData);
+
+          frameCount++;
+          if (frameCount % 30 === 0) {
+            // Log every 30 frames (3 seconds)
+            console.log(
+              `Sent ${frameCount} frames to WebSocket, last success:`,
+              success
+            );
+          }
+
+          if (!success) {
+            console.warn("Failed to send frame to WebSocket");
+          }
+        } catch (error) {
+          console.error("Error streaming frame:", error);
+        }
+      }
+    }, 100); // Send 10 frames per second
+
+    setStreamingInterval(interval);
+    setIsStreaming(true);
+    console.log("WebSocket frame streaming started");
+  };
+
+  // Stop streaming frames
+  const stopFrameStreaming = () => {
+    if (streamingInterval) {
+      clearInterval(streamingInterval);
+      setStreamingInterval(null);
+      console.log("WebSocket frame streaming stopped");
+    }
+    setIsStreaming(false);
+  };
+
   // Stop webcam
   const stopWebcam = () => {
     if (videoRef.current && videoRef.current.srcObject) {
@@ -161,15 +253,23 @@ export default function PoseCapture() {
       tracks.forEach((track) => track.stop());
       videoRef.current.srcObject = null;
     }
+
+    // Stop frame streaming
+    stopFrameStreaming();
+
+    // Clear current poses
+    setCurrentPoses([]);
+    currentPosesRef.current = [];
+
     setIsWebcamActive(false);
   };
 
-  // Capture image and detect poses with two-stage detection
+  // Capture image and send to API for analysis
   const captureImage = async () => {
     if (!isWebcamActive || isCapturing) return;
 
-    if (!multiPoseDetector || !singlePoseDetector) {
-      setError("Mô hình AI chưa được tải. Vui lòng thử lại.");
+    if (!isApiConnected) {
+      setError("API server chưa được kết nối. Vui lòng thử lại.");
       return;
     }
 
@@ -177,62 +277,91 @@ export default function PoseCapture() {
       setIsCapturing(true);
       setError(null);
 
-      // Capture image from canvas (which already has the video drawn on it)
+      // Capture image from canvas
       const canvas = canvasRef.current;
-      const imageData = canvas.toDataURL("image/png");
+      const imageData = canvas.toDataURL("image/jpeg", 0.8);
 
-      // Create image element for MoveNet processing
-      const img = new Image();
-      await new Promise((resolve, reject) => {
-        img.onload = resolve;
-        img.onerror = reject;
-        img.src = imageData;
-      });
-
-      // Use two-stage detection
-      const poses = await detectPosesTwoStage(img);
-
-      // Create analysis data
-      const analysis = {
-        total_poses: poses.length,
-        confidence:
-          poses.length > 0
-            ? poses.reduce((sum, pose) => sum + pose.score, 0) / poses.length
-            : 0,
-        detection_time: "0.2s",
-        model: "Two-Stage: MultiPose + SinglePose Thunder",
-        detection_method: "Bbox Detection + Precise Pose",
-        bbox_count: poses.filter((p) => p.bbox).length,
-      };
-
-      // Analyze defender pose if training session is active
-      let defenderAnalysis = null;
-      if (currentSession && currentSession.trainingType) {
-        defenderAnalysis = analyzeDefenderPose(
-          poses,
-          currentSession.trainingType
-        );
-      }
-
-      // Add to captured images with analysis
+      // Create capture object
       const newCapture = {
         id: Date.now(),
         image: imageData,
         timestamp: new Date().toISOString(),
-        poses: poses,
-        analysis: analysis,
-        defenderAnalysis: defenderAnalysis,
+        poses: [],
+        analysis: null,
+        defenderAnalysis: null,
         sessionId: currentSession?.id,
         source: "camera",
+        isProcessing: true,
       };
 
+      // Add to captured images immediately
       setCapturedImages((prev) => [...prev, newCapture]);
-      setIsCapturing(false);
 
-      console.log("Two-stage poses detected from camera:", poses);
+      // Send to API for analysis
+      try {
+        const binaryData = await convertToBinaryData(imageData, 0.8);
+        const result = await poseApiService.analyzeImage(binaryData);
+
+        if (result.success) {
+          // Transform API data format to frontend format
+          const transformedPoses = (result.poses || []).map((pose) => ({
+            ...pose,
+            // Keep original API format for drawing functions
+            keypoints_2d: pose.keypoints_2d,
+            bbox: pose.bbox,
+            // Add compatibility fields
+            keypoints: pose.keypoints_2d
+              ? pose.keypoints_2d.map(([x, y]) => ({ x, y, score: 1.0 }))
+              : [],
+            score: 1.0, // Assume high confidence for API data
+            track_id: pose.track_id,
+          }));
+
+          // Create analysis data
+          const analysis = {
+            total_poses: transformedPoses.length,
+            confidence: transformedPoses.length > 0 ? 1.0 : 0,
+            detection_time: "Server Processing",
+            model: "Server AI Model",
+            detection_method: "Server-side Pose Detection",
+          };
+
+          // Update the capture with server analysis
+          setCapturedImages((prev) => {
+            const updated = [...prev];
+            const lastCapture = updated[updated.length - 1];
+            if (lastCapture && lastCapture.id === newCapture.id) {
+              lastCapture.poses = transformedPoses;
+              lastCapture.analysis = analysis;
+              lastCapture.defenderAnalysis = null; // Will be calculated when roles are assigned
+              lastCapture.isProcessing = false;
+              lastCapture.serverAnalysis = result; // Store original API response
+            }
+            return updated;
+          });
+        } else {
+          throw new Error(result.message || "Analysis failed");
+        }
+      } catch (analysisError) {
+        console.error("Analysis error:", analysisError);
+        setError(`Lỗi phân tích: ${analysisError.message}`);
+
+        // Mark capture as failed
+        setCapturedImages((prev) => {
+          const updated = [...prev];
+          const lastCapture = updated[updated.length - 1];
+          if (lastCapture && lastCapture.id === newCapture.id) {
+            lastCapture.isProcessing = false;
+            lastCapture.error = analysisError.message;
+          }
+          return updated;
+        });
+      }
+
+      setIsCapturing(false);
     } catch (error) {
       console.error("Error capturing image:", error);
-      setError("Lỗi khi chụp ảnh hoặc xử lý tư thế. Vui lòng thử lại.");
+      setError("Lỗi khi chụp ảnh. Vui lòng thử lại.");
       setIsCapturing(false);
     }
   };
@@ -338,7 +467,23 @@ export default function PoseCapture() {
     if (defenderIndex === undefined) return null;
 
     const defenderPose = poses[parseInt(defenderIndex)];
-    if (!defenderPose || !defenderPose.keypoints) return null;
+    if (!defenderPose) return null;
+
+    // Get keypoints in the format expected by analyzePose function
+    let keypoints;
+    if (defenderPose.keypoints_2d) {
+      // API format: convert [x, y] to {x, y, score}
+      keypoints = defenderPose.keypoints_2d.map(([x, y]) => ({
+        x,
+        y,
+        score: 1.0,
+      }));
+    } else if (defenderPose.keypoints) {
+      // Old format: already in {x, y, score} format
+      keypoints = defenderPose.keypoints;
+    } else {
+      return null;
+    }
 
     // Get training type details
     const trainingType = trainingTypes.find((t) => t.id === trainingTypeId);
@@ -346,10 +491,20 @@ export default function PoseCapture() {
 
     // Classify actions for all poses
     const classifiedActions = poses.map((pose) => {
-      if (pose.keypoints) {
-        return classifyAction(pose.keypoints);
+      let poseKeypoints;
+      if (pose.keypoints_2d) {
+        poseKeypoints = pose.keypoints_2d.map(([x, y]) => ({
+          x,
+          y,
+          score: 1.0,
+        }));
+      } else if (pose.keypoints) {
+        poseKeypoints = pose.keypoints;
+      } else {
+        return { action: "unknown", confidence: 0 };
       }
-      return { action: "unknown", confidence: 0 };
+
+      return classifyAction(poseKeypoints);
     });
 
     // Find attacker actions
@@ -362,7 +517,7 @@ export default function PoseCapture() {
       classifiedActions[parseInt(defenderIndex)];
     const defenderAction = defenderActionClassification.action;
 
-    const analysis = analyzePose(defenderPose.keypoints, defenderAction);
+    const analysis = analyzePose(keypoints, defenderAction);
 
     return {
       ...analysis,
@@ -416,10 +571,10 @@ export default function PoseCapture() {
     img.src = selectedImageDetail.image;
   };
 
-  // Process uploaded image with two-stage detection
+  // Process uploaded image using HTTP API
   const processUploadedImage = async (file) => {
-    if (!multiPoseDetector || !singlePoseDetector) {
-      setError("Mô hình AI chưa được tải. Vui lòng thử lại.");
+    if (!isApiConnected) {
+      setError("API server chưa được kết nối. Vui lòng thử lại.");
       return;
     }
 
@@ -427,70 +582,91 @@ export default function PoseCapture() {
       setIsProcessingUpload(true);
       setError(null);
 
-      // Create image element
-      const img = new Image();
-      const imageUrl = URL.createObjectURL(file);
-
-      await new Promise((resolve, reject) => {
-        img.onload = resolve;
-        img.onerror = reject;
-        img.src = imageUrl;
+      // Convert file to data URL for display
+      const imageData = await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result);
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
       });
-
-      // Use two-stage detection
-      const poses = await detectPosesTwoStage(img);
-      console.log("Two-stage detection results:", poses);
-
-      // Convert image to data URL
-      const canvas = document.createElement("canvas");
-      const ctx = canvas.getContext("2d");
-      canvas.width = img.naturalWidth;
-      canvas.height = img.naturalHeight;
-      ctx.drawImage(img, 0, 0);
-      const imageData = canvas.toDataURL("image/png");
-
-      // Create analysis data
-      const analysis = {
-        total_poses: poses.length,
-        confidence:
-          poses.length > 0
-            ? poses.reduce((sum, pose) => sum + pose.score, 0) / poses.length
-            : 0,
-        detection_time: "0.2s",
-        model: "Two-Stage: MultiPose + SinglePose Thunder",
-        detection_method: "Bbox Detection + Precise Pose",
-        bbox_count: poses.filter((p) => p.bbox).length,
-      };
-
-      // Analyze defender pose if training session is active
-      let defenderAnalysis = null;
-      if (currentSession && currentSession.trainingType) {
-        defenderAnalysis = analyzeDefenderPose(
-          poses,
-          currentSession.trainingType
-        );
-      }
 
       // Create capture object
       const newCapture = {
         id: Date.now(),
         image: imageData,
         timestamp: new Date().toISOString(),
-        poses: poses,
-        analysis: analysis,
-        defenderAnalysis: defenderAnalysis,
+        poses: [],
+        analysis: null,
+        defenderAnalysis: null,
         sessionId: currentSession?.id,
         source: "upload",
+        isProcessing: true,
       };
 
       // Add to captured images
       setCapturedImages((prev) => [...prev, newCapture]);
 
-      // Clean up
-      URL.revokeObjectURL(imageUrl);
-      setIsProcessingUpload(false);
+      // Send to API for analysis
+      try {
+        const result = await poseApiService.analyzeImage(file);
 
-      console.log("Poses detected:", poses);
+        if (result.success) {
+          // Transform API data format to frontend format
+          const transformedPoses = (result.poses || []).map((pose) => ({
+            ...pose,
+            // Keep original API format for drawing functions
+            keypoints_2d: pose.keypoints_2d,
+            bbox: pose.bbox,
+            // Add compatibility fields
+            keypoints: pose.keypoints_2d
+              ? pose.keypoints_2d.map(([x, y]) => ({ x, y, score: 1.0 }))
+              : [],
+            score: 1.0, // Assume high confidence for API data
+            track_id: pose.track_id,
+          }));
+
+          // Create analysis data
+          const analysis = {
+            total_poses: transformedPoses.length,
+            confidence: transformedPoses.length > 0 ? 1.0 : 0,
+            detection_time: "Server Processing",
+            model: "Server AI Model",
+            detection_method: "Server-side Pose Detection",
+          };
+
+          // Update the capture with server analysis
+          setCapturedImages((prev) => {
+            const updated = [...prev];
+            const lastCapture = updated[updated.length - 1];
+            if (lastCapture && lastCapture.id === newCapture.id) {
+              lastCapture.poses = transformedPoses;
+              lastCapture.analysis = analysis;
+              lastCapture.defenderAnalysis = null; // Will be calculated when roles are assigned
+              lastCapture.isProcessing = false;
+              lastCapture.serverAnalysis = result; // Store original API response
+            }
+            return updated;
+          });
+        } else {
+          throw new Error(result.message || "Analysis failed");
+        }
+      } catch (analysisError) {
+        console.error("Analysis error:", analysisError);
+        setError(`Lỗi phân tích: ${analysisError.message}`);
+
+        // Mark capture as failed
+        setCapturedImages((prev) => {
+          const updated = [...prev];
+          const lastCapture = updated[updated.length - 1];
+          if (lastCapture && lastCapture.id === newCapture.id) {
+            lastCapture.isProcessing = false;
+            lastCapture.error = analysisError.message;
+          }
+          return updated;
+        });
+      }
+
+      setIsProcessingUpload(false);
     } catch (error) {
       console.error("Error processing uploaded image:", error);
       setError("Lỗi khi xử lý ảnh. Vui lòng thử lại.");
@@ -508,322 +684,7 @@ export default function PoseCapture() {
     }
   };
 
-  // Two-stage detection: MultiPose for bbox, SinglePose for precise detection
-  const detectPosesTwoStage = async (img) => {
-    if (!multiPoseDetector || !singlePoseDetector) {
-      throw new Error("Models not loaded");
-    }
-
-    // Stage 1: Detect bounding boxes using MultiPose
-    const multiPoseResults = await multiPoseDetector.estimatePoses(img, {
-      flipHorizontal: false,
-      maxPoses: 2,
-      scoreThreshold: 0.1,
-      nmsRadius: 20,
-      multiPoseMaxDimension: 256,
-      enableSmoothing: true,
-      enableTracking: true,
-    });
-
-    console.log("MultiPose bbox results:", multiPoseResults);
-
-    if (multiPoseResults.length === 0) {
-      return [];
-    }
-
-    // Stage 2: Use SinglePose Thunder on each detected person
-    const finalPoses = [];
-
-    for (let i = 0; i < multiPoseResults.length; i++) {
-      const bboxPose = multiPoseResults[i];
-
-      // Calculate bounding box from keypoints
-      const keypoints = bboxPose.keypoints;
-      if (keypoints.length === 0) continue;
-
-      // Find min/max coordinates
-      let minX = Infinity,
-        minY = Infinity,
-        maxX = -Infinity,
-        maxY = -Infinity;
-      let validKeypoints = 0;
-
-      keypoints.forEach((kp) => {
-        if (kp.score > 0.1) {
-          minX = Math.min(minX, kp.x);
-          minY = Math.min(minY, kp.y);
-          maxX = Math.max(maxX, kp.x);
-          maxY = Math.max(maxY, kp.y);
-          validKeypoints++;
-        }
-      });
-
-      if (validKeypoints < 3) continue; // Need at least 3 valid keypoints
-
-      // Add padding to bounding box
-      const padding = 70;
-      const bbox = {
-        x: Math.max(0, minX - padding),
-        y: Math.max(0, minY - padding),
-        width: Math.min(
-          img.naturalWidth - (minX - padding),
-          maxX - minX + 2 * padding
-        ),
-        height: Math.min(
-          img.naturalHeight - (minY - padding),
-          maxY - minY + 2 * padding
-        ),
-      };
-
-      // Crop image to bounding box
-      const canvas = document.createElement("canvas");
-      const ctx = canvas.getContext("2d");
-      canvas.width = bbox.width;
-      canvas.height = bbox.height;
-
-      ctx.drawImage(
-        img,
-        bbox.x,
-        bbox.y,
-        bbox.width,
-        bbox.height,
-        0,
-        0,
-        bbox.width,
-        bbox.height
-      );
-
-      // Stage 2: Detect precise pose using SinglePose Thunder
-      const singlePoseResults = await singlePoseDetector.estimatePoses(canvas, {
-        flipHorizontal: false,
-        scoreThreshold: 0.1,
-        enableSmoothing: true,
-        enableTracking: true,
-      });
-
-      if (singlePoseResults.length > 0) {
-        const precisePose = singlePoseResults[0];
-
-        // Transform coordinates back to original image space
-        const transformedKeypoints = precisePose.keypoints.map((kp) => ({
-          ...kp,
-          x: kp.x + bbox.x,
-          y: kp.y + bbox.y,
-        }));
-
-        finalPoses.push({
-          ...precisePose,
-          keypoints: transformedKeypoints,
-          bbox: bbox,
-          originalIndex: i,
-        });
-      }
-    }
-
-    return finalPoses;
-  };
-
-  // Draw pose skeleton on canvas
-  const drawPoseSkeleton = (
-    ctx,
-    poses,
-    canvasWidth,
-    canvasHeight,
-    isDetailView = false,
-    selectedPersonRoles
-  ) => {
-    if (!poses || poses.length === 0) return;
-
-    // Only draw skeletons if roles are assigned (not in role selection mode)
-    // if (showRoleSelection) return;
-
-    // Adjust line width and keypoint size based on view type
-    const lineWidth = isDetailView ? 4 : 2;
-    const keypointRadius = isDetailView ? 6 : 4;
-    const labelFontSize = isDetailView ? "bold 20px Arial" : "bold 14px Arial";
-
-    poses.forEach((pose, index) => {
-      const keypoints = pose.keypoints || [];
-
-      // Determine role and colors based on assigned roles
-      let skeletonColor, keypointColor;
-
-      if (selectedPersonRoles[index] === "defender") {
-        // Green for defender
-        skeletonColor = "#22c55e";
-        keypointColor = "#16a34a";
-      } else if (selectedPersonRoles[index] === "attacker") {
-        // Red for attacker
-        skeletonColor = "#ef4444";
-        keypointColor = "#dc2626";
-      } else {
-        // Purple for unassigned roles
-        skeletonColor = "#8b5cf6";
-        keypointColor = "#7c3aed";
-      }
-
-      // Draw skeleton connections (simplified MoveNet connections)
-      const connections = [
-        [0, 1],
-        [0, 2],
-        [1, 3],
-        [2, 4], // Head
-        [5, 6],
-        [5, 7],
-        [6, 8],
-        [7, 9],
-        [8, 10], // Arms
-        [5, 11],
-        [6, 12],
-        [11, 12], // Torso
-        [11, 13],
-        [12, 14],
-        [13, 15],
-        [14, 16], // Legs
-      ];
-
-      // Draw skeleton with thicker lines for detail view
-      ctx.strokeStyle = skeletonColor;
-      ctx.lineWidth = lineWidth;
-      ctx.lineCap = "round";
-      ctx.lineJoin = "round";
-
-      connections.forEach(([startIdx, endIdx]) => {
-        const startPoint = keypoints[startIdx];
-        const endPoint = keypoints[endIdx];
-
-        if (
-          startPoint &&
-          endPoint &&
-          startPoint.score > MIN_SCORE &&
-          endPoint.score > MIN_SCORE
-        ) {
-          ctx.beginPath();
-          ctx.moveTo(startPoint.x, startPoint.y);
-          ctx.lineTo(endPoint.x, endPoint.y);
-          ctx.stroke();
-        }
-      });
-
-      // Draw keypoints with larger size for detail view
-      keypoints.forEach((keypoint) => {
-        if (keypoint && keypoint.score > MIN_SCORE) {
-          // Draw keypoint with gradient effect for detail view
-          if (isDetailView) {
-            const gradient = ctx.createRadialGradient(
-              keypoint.x,
-              keypoint.y,
-              0,
-              keypoint.x,
-              keypoint.y,
-              keypointRadius
-            );
-            gradient.addColorStop(0, keypointColor);
-            gradient.addColorStop(0.7, keypointColor);
-            gradient.addColorStop(1, "rgba(255, 255, 255, 0.3)");
-            ctx.fillStyle = gradient;
-          } else {
-            ctx.fillStyle = keypointColor;
-          }
-
-          ctx.beginPath();
-          ctx.arc(keypoint.x, keypoint.y, keypointRadius, 0, 2 * Math.PI);
-          ctx.fill();
-
-          // Add white border with thicker stroke for detail view
-          ctx.strokeStyle = "#ffffff";
-          ctx.lineWidth = isDetailView ? 3 : 1;
-          ctx.stroke();
-        }
-      });
-
-      // Draw pose label with larger font for detail view
-      if (keypoints[0] && keypoints[0].score > 0.3) {
-        let label;
-        if (selectedPersonRoles[index] === "defender") {
-          label = "DEFENDER";
-        } else if (selectedPersonRoles[index] === "attacker") {
-          label = "ATTACKER";
-        } else {
-          label = "UNASSIGNED";
-        }
-
-        ctx.fillStyle = skeletonColor;
-        ctx.font = labelFontSize;
-        ctx.textAlign = "center";
-        ctx.fillText(
-          label,
-          keypoints[0].x,
-          keypoints[0].y - (isDetailView ? 30 : 20)
-        );
-      }
-    });
-  };
-
-  // Draw bounding boxes and person IDs
-  const drawBoundingBoxes = (ctx, poses, canvasWidth, canvasHeight) => {
-    if (!poses || poses.length === 0) return;
-
-    poses.forEach((pose, index) => {
-      if (!pose.bbox) return;
-
-      const bbox = pose.bbox;
-      const personId = index + 1;
-
-      // Draw bounding box
-      ctx.strokeStyle = "#3b82f6"; // Blue color
-      ctx.lineWidth = 3;
-      ctx.strokeRect(bbox.x, bbox.y, bbox.width, bbox.height);
-
-      // Draw person ID background
-      const idText = `Person ${personId}`;
-      ctx.font = "bold 16px Arial";
-
-      // Use purple background for role selection mode
-      const isSelected = defenderSelected === index;
-      ctx.fillStyle = isSelected ? "#7c3aed" : "#8b5cf6"; // Purple background
-      const textMetrics = ctx.measureText(idText);
-      const textWidth = textMetrics.width + 16;
-      const textHeight = 24;
-
-      ctx.fillRect(bbox.x, bbox.y - textHeight, textWidth, textHeight);
-
-      // Draw person ID text
-      ctx.fillStyle = "#ffffff";
-      ctx.textAlign = "left";
-      ctx.fillText(idText, bbox.x + 8, bbox.y - 6);
-
-      // Draw role if assigned
-      if (selectedPersonRoles[index]) {
-        const role = selectedPersonRoles[index];
-        const roleText = role === "defender" ? "DEFENDER" : "ATTACKER";
-        const roleColor = role === "defender" ? "#22c55e" : "#ef4444";
-
-        ctx.fillStyle = roleColor;
-        ctx.font = "bold 14px Arial";
-        const roleMetrics = ctx.measureText(roleText);
-        const roleWidth = roleMetrics.width + 12;
-        const roleHeight = 20;
-
-        ctx.fillRect(
-          bbox.x + bbox.width - roleWidth,
-          bbox.y - textHeight - roleHeight,
-          roleWidth,
-          roleHeight
-        );
-
-        ctx.fillStyle = "#ffffff";
-        ctx.textAlign = "center";
-        ctx.fillText(
-          roleText,
-          bbox.x + bbox.width - roleWidth / 2,
-          bbox.y - textHeight - 6
-        );
-      }
-    });
-  };
-
-  // Draw video to canvas
+  // Draw video to canvas with real-time pose overlay
   const drawVideoToCanvas = () => {
     if (videoRef.current && canvasRef.current && isWebcamActive) {
       const video = videoRef.current;
@@ -832,6 +693,29 @@ export default function PoseCapture() {
 
       // Draw video frame to canvas (dimensions already set during initialization)
       ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+      // Draw real-time pose data if available
+      const posesToDraw = currentPosesRef.current;
+      if (posesToDraw && posesToDraw.length > 0) {
+        console.log("Drawing poses on canvas:", posesToDraw.length, "poses");
+        // Draw bounding boxes
+        drawBoundingBoxes(ctx, posesToDraw, canvas.width, canvas.height);
+
+        // Draw skeleton (without role colors for real-time view)
+        drawPoseSkeleton(
+          ctx,
+          posesToDraw,
+          canvas.width,
+          canvas.height,
+          false,
+          {}
+        );
+      } else {
+        // Debug: log when no poses are available
+        if (posesToDraw.length === 0) {
+          console.log("No poses to draw, currentPosesRef:", posesToDraw);
+        }
+      }
 
       // Continue drawing
       requestAnimationFrame(drawVideoToCanvas);
@@ -845,10 +729,79 @@ export default function PoseCapture() {
     }
   }, [isWebcamActive]);
 
-  // Initialize MoveNet model on component mount
+  // Debug: Monitor currentPoses state changes
   useEffect(() => {
-    initializeMoveNet();
+    console.log("currentPoses state changed:", currentPoses);
+  }, [currentPoses]);
+
+  // Test function to manually set poses (for debugging)
+  const testSetPoses = () => {
+    const testPoses = [
+      {
+        track_id: "test",
+        keypoints_2d: [
+          [100, 100],
+          [120, 80],
+          [80, 80],
+          [140, 90],
+          [60, 90],
+          [150, 200],
+          [50, 200],
+          [160, 220],
+          [40, 220],
+          [140, 180],
+          [60, 180],
+          [130, 150],
+          [70, 150],
+          [120, 250],
+          [80, 250],
+          [110, 280],
+          [90, 280],
+        ],
+        bbox: [30, 60, 140, 240],
+      },
+    ];
+    console.log("Testing with manual poses:", testPoses);
+    setCurrentPoses(testPoses);
+    currentPosesRef.current = testPoses;
+  };
+
+  // Initialize API service on component mount
+  useEffect(() => {
+    initializeApiService();
+
+    // Cleanup on unmount
+    return () => {
+      if (streamingInterval) {
+        clearInterval(streamingInterval);
+      }
+      poseApiService.disconnectWebSocket();
+    };
   }, []);
+
+  // Monitor API connection and start streaming when available
+  useEffect(() => {
+    if (isApiConnected && isWebcamActive && !isStreaming) {
+      console.log("API connected, starting frame streaming...");
+      startFrameStreaming();
+    } else if (!isApiConnected && isStreaming) {
+      console.log("API disconnected, stopping frame streaming...");
+      stopFrameStreaming();
+    }
+  }, [isApiConnected, isWebcamActive, isStreaming]);
+
+  // Periodic connection status check
+  useEffect(() => {
+    const connectionCheckInterval = setInterval(() => {
+      const status = poseApiService.getConnectionStatus();
+      if (status.isConnected !== isApiConnected) {
+        console.log("Connection status changed:", status.isConnected);
+        setIsApiConnected(status.isConnected);
+      }
+    }, 2000); // Check every 2 seconds
+
+    return () => clearInterval(connectionCheckInterval);
+  }, [isApiConnected, poseApiService]);
 
   // Update canvas zoom when zoom level changes
   useEffect(() => {
@@ -888,38 +841,11 @@ export default function PoseCapture() {
           <h1 className="text-3xl font-bold text-center bg-gradient-to-r from-blue-400 to-red-400 bg-clip-text text-transparent py-2">
             📸 Phân tích tư thế võ thuật bằng AI
           </h1>
-          {/* MoveNet Model Status */}
-          <div className="bg-gray-800/50 backdrop-blur-sm rounded-2xl p-4 border border-gray-700">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center space-x-3">
-                <div
-                  className={`w-3 h-3 rounded-full ${
-                    moveNetDetector
-                      ? "bg-green-500 animate-pulse"
-                      : isModelLoading
-                      ? "bg-yellow-500 animate-pulse"
-                      : "bg-red-500"
-                  }`}
-                ></div>
-                <span className="text-sm">
-                  Mô hình AI:{" "}
-                  {multiPoseDetector && singlePoseDetector
-                    ? "Đã Sẵn Sàng"
-                    : isModelLoading
-                    ? "Đang Tải..."
-                    : "Chưa Tải"}
-                </span>
-              </div>
-              {!moveNetDetector && !isModelLoading && (
-                <button
-                  onClick={initializeMoveNet}
-                  className="bg-purple-500 hover:bg-purple-600 text-white px-3 py-1 rounded text-sm transition-colors"
-                >
-                  Tải Lại
-                </button>
-              )}
-            </div>
-          </div>
+          <ConnectionStatus
+            isApiConnected={isApiConnected}
+            isStreaming={isStreaming}
+            onReconnect={initializeApiService}
+          />
         </div>
 
         {/* Error Display */}
@@ -934,611 +860,78 @@ export default function PoseCapture() {
           </div>
         )}
 
+        {/* Debug Test Button */}
+        <div className="mb-6">
+          <button
+            onClick={testSetPoses}
+            className="bg-yellow-500 hover:bg-yellow-600 text-white px-4 py-2 rounded"
+          >
+            Test Set Poses (Debug)
+          </button>
+        </div>
+
         {/* Webcam Controls */}
         <div className="mb-8">
-          <div className="bg-gray-800/50 backdrop-blur-sm rounded-2xl p-6 border border-gray-700">
-            <h2 className="text-xl font-semibold mb-4 flex items-center">
-              <span className="text-2xl mr-3">🎥</span>
-              Điều Khiển Camera
-            </h2>
+          <WebcamControls
+            isWebcamActive={isWebcamActive}
+            isLoading={isLoading}
+            isCapturing={isCapturing}
+            isApiConnected={isApiConnected}
+            isProcessingUpload={isProcessingUpload}
+            onStartWebcam={startWebcam}
+            onStopWebcam={stopWebcam}
+            onCaptureImage={captureImage}
+            onFileUpload={handleFileUpload}
+          />
 
-            <div className="flex items-center space-x-4 mb-4">
-              {!isWebcamActive ? (
-                <button
-                  onClick={startWebcam}
-                  disabled={isLoading}
-                  className="bg-green-500 hover:bg-green-600 disabled:bg-gray-500 text-white px-6 py-3 rounded-lg font-medium transition-colors flex items-center space-x-2"
-                >
-                  {isLoading ? (
-                    <>
-                      <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
-                      <span>Đang khởi động...</span>
-                    </>
-                  ) : (
-                    <>
-                      <span>📹</span>
-                      <span>Bật Camera</span>
-                    </>
-                  )}
-                </button>
-              ) : (
-                <button
-                  onClick={stopWebcam}
-                  className="bg-red-500 hover:bg-red-600 text-white px-6 py-3 rounded-lg font-medium transition-colors flex items-center space-x-2"
-                >
-                  <span>⏹️</span>
-                  <span>Dừng Camera</span>
-                </button>
-              )}
-
-              {isWebcamActive && (
-                <button
-                  onClick={captureImage}
-                  disabled={
-                    isCapturing || !multiPoseDetector || !singlePoseDetector
-                  }
-                  className="bg-blue-500 hover:bg-blue-600 disabled:bg-gray-500 text-white px-6 py-3 rounded-lg font-medium transition-colors flex items-center space-x-2"
-                >
-                  {isCapturing ? (
-                    <>
-                      <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
-                      <span>Đang chụp...</span>
-                    </>
-                  ) : (
-                    <>
-                      <span>📸</span>
-                      <span>Chụp Ảnh</span>
-                    </>
-                  )}
-                </button>
-              )}
-
-              {/* Upload Image Button */}
-              <div className="relative">
-                <input
-                  type="file"
-                  accept="image/*"
-                  onChange={handleFileUpload}
-                  disabled={
-                    !multiPoseDetector ||
-                    !singlePoseDetector ||
-                    isProcessingUpload
-                  }
-                  className="hidden"
-                  id="image-upload"
-                />
-                <label
-                  htmlFor="image-upload"
-                  className={`${
-                    !multiPoseDetector ||
-                    !singlePoseDetector ||
-                    isProcessingUpload
-                      ? "bg-gray-500 cursor-not-allowed"
-                      : "bg-purple-500 hover:bg-purple-600 cursor-pointer"
-                  } text-white px-6 py-3 rounded-lg font-medium transition-colors flex items-center space-x-2`}
-                >
-                  {isProcessingUpload ? (
-                    <>
-                      <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
-                      <span>Đang xử lý...</span>
-                    </>
-                  ) : isModelLoading ? (
-                    <>
-                      <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
-                      <span>Đang tải mô hình...</span>
-                    </>
-                  ) : (
-                    <>
-                      <span>📁</span>
-                      <span>Tải Ảnh Lên</span>
-                    </>
-                  )}
-                </label>
-              </div>
-            </div>
-
-            {/* Session Controls */}
-            <div className="flex items-center space-x-4">
-              {!currentSession ? (
-                <button
-                  onClick={showTrainingTypeSelection}
-                  className="bg-orange-500 hover:bg-orange-600 text-white px-6 py-3 rounded-lg font-medium transition-colors flex items-center space-x-2"
-                >
-                  <span>🏁</span>
-                  <span>Bắt Đầu Phiên Huấn Luyện</span>
-                </button>
-              ) : (
-                <div className="flex items-center space-x-4">
-                  <div className="flex items-center space-x-2 text-orange-400">
-                    <div className="w-2 h-2 bg-orange-400 rounded-full animate-pulse"></div>
-                    <span className="text-sm">{currentSession.typeName}</span>
-                  </div>
-                  <button
-                    onClick={resetSession}
-                    className="bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors"
-                  >
-                    Đặt Lại Phiên
-                  </button>
-                </div>
-              )}
-            </div>
+          {/* Session Controls */}
+          <div className="mt-4">
+            <SessionControls
+              currentSession={currentSession}
+              onShowTrainingTypeSelection={showTrainingTypeSelection}
+              onResetSession={resetSession}
+            />
           </div>
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
           {/* Video Feed */}
-          <div>
-            <div className="bg-gray-800/50 backdrop-blur-sm rounded-2xl p-6 border border-gray-700">
-              <h2 className="text-xl font-semibold mb-4 flex items-center">
-                <span
-                  className={`w-3 h-3 rounded-full mr-3 ${
-                    isWebcamActive
-                      ? "bg-green-500 animate-pulse"
-                      : "bg-gray-500"
-                  }`}
-                ></span>
-                Luồng Camera Trực Tiếp
-              </h2>
-
-              <div className="relative bg-black rounded-xl overflow-hidden shadow-2xl h-96">
-                {/* Always render video and canvas elements for refs */}
-                <video
-                  ref={videoRef}
-                  autoPlay
-                  playsInline
-                  muted
-                  width={640}
-                  height={480}
-                  className="hidden"
-                />
-                <canvas
-                  ref={canvasRef}
-                  className={`w-full h-full object-cover ${
-                    !isWebcamActive ? "hidden" : ""
-                  }`}
-                />
-
-                {!isWebcamActive && (
-                  <div className="absolute inset-0 flex items-center justify-center bg-gray-800">
-                    <div className="text-center">
-                      <div className="text-6xl mb-4">📹</div>
-                      <p className="text-gray-300 text-lg">
-                        Nhấn "Bật Camera" để bắt đầu
-                      </p>
-                    </div>
-                  </div>
-                )}
-
-                {/* Overlay Info */}
-                {isWebcamActive && (
-                  <div className="absolute top-4 left-4 bg-black/70 backdrop-blur-sm rounded-lg px-3 py-2">
-                    <div className="flex items-center space-x-4 text-sm">
-                      <div className="flex items-center space-x-2">
-                        <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse"></div>
-                        <span className="text-green-400">
-                          Camera Đang Hoạt Động
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
+          <VideoFeed
+            isWebcamActive={isWebcamActive}
+            isStreaming={isStreaming}
+            videoRef={videoRef}
+            canvasRef={canvasRef}
+            currentPoses={currentPoses}
+          />
 
           {/* Captured Images */}
-          <div>
-            <div className="bg-gray-800/50 backdrop-blur-sm rounded-2xl p-6 border border-gray-700">
-              <h2 className="text-xl font-semibold mb-4 flex items-center">
-                <span className="text-2xl mr-3">📸</span>
-                Ảnh Đã Chụp
-                {capturedImages.length > 0 && (
-                  <span className="ml-3 bg-blue-500/20 text-blue-400 px-3 py-1 rounded-full text-sm">
-                    {capturedImages.length} đã chụp
-                  </span>
-                )}
-              </h2>
-
-              {capturedImages.length === 0 ? (
-                <div className="flex items-center justify-center h-96 bg-gray-800 rounded-xl">
-                  <div className="text-center">
-                    <div className="text-6xl mb-4">📷</div>
-                    <p className="text-gray-300 text-lg">
-                      Chưa có ảnh nào được chụp
-                    </p>
-                    <p className="text-gray-400 text-sm mt-2">
-                      Bật camera và nhấn "Chụp Ảnh"
-                    </p>
-                  </div>
-                </div>
-              ) : (
-                <div className="grid grid-cols-1 gap-4 max-h-96 overflow-y-auto">
-                  {capturedImages.map((capture) => (
-                    <div
-                      key={capture.id}
-                      className="bg-gray-700 rounded-lg p-4 border border-gray-600 hover:border-blue-500 transition-colors cursor-pointer"
-                      onClick={() => showImageDetail(capture)}
-                    >
-                      <div className="flex space-x-4">
-                        <img
-                          src={capture.image}
-                          alt="Captured pose"
-                          className="w-24 h-24 object-cover rounded-lg"
-                        />
-                        <div className="flex-1">
-                          <div className="text-sm text-gray-300 mb-2">
-                            {new Date(capture.timestamp).toLocaleTimeString()}
-                          </div>
-                          <div className="text-sm text-blue-400 mb-1">
-                            Tư thế phát hiện: {capture.poses?.length || 0}
-                          </div>
-                          {capture.analysis && (
-                            <div className="text-xs text-gray-400 mb-1">
-                              Độ tin cậy:{" "}
-                              {Math.round(
-                                (capture.analysis.confidence || 0) * 100
-                              )}
-                              %
-                            </div>
-                          )}
-                          <div className="text-xs text-purple-400 mb-1">
-                            {capture.source === "upload"
-                              ? "📁 Tải lên"
-                              : "📸 Camera"}
-                            {capture.analysis?.model &&
-                              ` - ${capture.analysis.model}`}
-                          </div>
-                          <div className="text-xs text-green-400">
-                            Nhấn để xem chi tiết →
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
+          <CapturedImages
+            capturedImages={capturedImages}
+            onImageClick={showImageDetail}
+          />
         </div>
       </div>
 
       {/* Training Type Selection Modal */}
-      {showTrainingTypeModal && (
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50">
-          <div className="bg-gray-800 rounded-2xl p-6 max-w-md w-full mx-4 border border-gray-700">
-            <h3 className="text-xl font-bold mb-4 text-center text-white">
-              🏆 Chọn Bài Huấn Luyện
-            </h3>
-
-            <div className="space-y-3 mb-6">
-              {trainingTypes.map((type) => (
-                <button
-                  key={type.id}
-                  onClick={() => startTrainingSession(type.id)}
-                  className="w-full p-4 bg-gray-700 hover:bg-gray-600 rounded-lg border border-gray-600 hover:border-orange-500 transition-colors text-left"
-                >
-                  <div className="font-semibold text-white mb-1">
-                    {type.name}
-                  </div>
-                  {/* <div className="text-sm text-gray-300">
-                    {type.description}
-                  </div> */}
-                </button>
-              ))}
-            </div>
-
-            <div className="flex justify-center">
-              <button
-                onClick={() => setShowTrainingTypeModal(false)}
-                className="bg-gray-600 hover:bg-gray-500 text-white px-6 py-2 rounded-lg transition-colors"
-              >
-                Hủy
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <TrainingTypeModal
+        isOpen={showTrainingTypeModal}
+        onClose={() => setShowTrainingTypeModal(false)}
+        onSelectTrainingType={startTrainingSession}
+      />
 
       {/* Image Detail Modal */}
-      {showImageDetailModal && selectedImageDetail && (
-        <div className="fixed inset-0 bg-black/90 backdrop-blur-sm z-50">
-          <div className="h-full w-full flex flex-col">
-            {/* Header */}
-            <div className="bg-gray-800/95 backdrop-blur-sm border-b border-gray-700 p-4 flex items-center justify-between">
-              <h3 className="text-xl font-bold text-white">
-                📸 Chi Tiết Ảnh Chụp
-              </h3>
-              <button
-                onClick={closeImageDetail}
-                className="bg-gray-600 hover:bg-gray-500 text-white px-4 py-2 rounded-lg transition-colors"
-              >
-                Đóng
-              </button>
-            </div>
-
-            {/* Main Content */}
-            <div className="flex-1 flex overflow-hidden">
-              {/* Image Section - Half Screen */}
-              <div className="w-2/3 flex flex-col">
-                <div className="flex items-center justify-between p-4 bg-gray-800/50 border-b border-gray-700">
-                  <h4 className="text-lg font-semibold text-white">
-                    Ảnh với Skeleton Tư Thế
-                  </h4>
-                </div>
-                <div className="flex-1 bg-black overflow-auto">
-                  <img
-                    src={selectedImageDetail.image}
-                    alt="Captured pose with skeleton"
-                    className="object-scale-down"
-                    onLoad={(e) => {
-                      // Draw pose skeleton on image load
-                      const img = e.target;
-                      const canvas = document.createElement("canvas");
-                      const ctx = canvas.getContext("2d");
-
-                      // Use original image dimensions for better quality
-                      canvas.width = img.naturalWidth;
-                      canvas.height = img.naturalHeight;
-
-                      // Draw image
-                      ctx.drawImage(img, 0, 0);
-
-                      // Draw bounding boxes first
-                      if (
-                        selectedImageDetail.poses &&
-                        selectedImageDetail.poses.length > 0
-                      ) {
-                        drawBoundingBoxes(
-                          ctx,
-                          selectedImageDetail.poses,
-                          canvas.width,
-                          canvas.height
-                        );
-
-                        // Only draw pose skeleton if not in role selection mode
-                        if (!showRoleSelection) {
-                          drawPoseSkeleton(
-                            ctx,
-                            selectedImageDetail.poses,
-                            canvas.width,
-                            canvas.height,
-                            true, // Enable detail view mode
-                            selectedPersonRoles
-                          );
-                        }
-                      }
-
-                      // Replace image with canvas
-                      img.style.display = "none";
-                      img.parentNode.appendChild(canvas);
-                      canvas.className =
-                        "max-w-[700px] transition-transform duration-200";
-                      canvas.style.transform = `scale(${imageZoom})`;
-                      canvas.style.transformOrigin = "top left";
-                    }}
-                  />
-                </div>
-              </div>
-
-              {/* Analysis Section - Half Screen */}
-              <div className="w-1/3 flex flex-col bg-gray-800/30">
-                <div className="p-4 bg-gray-800/50 border-b border-gray-700">
-                  <h4 className="text-lg font-semibold text-white">
-                    Phân Tích & Phản Hồi
-                  </h4>
-                </div>
-                <div className="flex-1 overflow-y-auto p-4">
-                  {/* Role Selection */}
-                  {showRoleSelection &&
-                    selectedImageDetail.poses &&
-                    selectedImageDetail.poses.length > 0 && (
-                      <div className="bg-gray-700 rounded-lg p-4 mb-4">
-                        <h5 className="font-semibold text-white mb-3">
-                          🛡️ Chọn Defender
-                        </h5>
-                        <div className="mb-3 p-2 bg-purple-500/20 border border-purple-500/50 rounded text-sm text-purple-400">
-                          💜 Chọn người nào là Defender. Người còn lại sẽ tự
-                          động là Attacker.
-                        </div>
-                        <div className="space-y-3">
-                          {selectedImageDetail.poses.map((pose, index) => (
-                            <div
-                              key={index}
-                              className={`border rounded-lg p-3 cursor-pointer transition-colors ${
-                                defenderSelected === index
-                                  ? "border-green-500 bg-green-500/10"
-                                  : "border-gray-600 hover:border-purple-500"
-                              }`}
-                              onClick={() => selectDefender(index)}
-                            >
-                              <div className="flex items-center space-x-2">
-                                <div
-                                  className={`w-4 h-4 rounded-full ${
-                                    defenderSelected === index
-                                      ? "bg-green-500"
-                                      : "bg-purple-500"
-                                  }`}
-                                ></div>
-                                <div className="text-sm text-gray-300">
-                                  Person {index + 1}
-                                </div>
-                                {defenderSelected === index && (
-                                  <div className="text-xs text-green-400 font-medium">
-                                    ✅ Selected as Defender
-                                  </div>
-                                )}
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-
-                  {/* Defender Analysis */}
-                  {selectedImageDetail.defenderAnalysis && (
-                    <div className="bg-gray-700 rounded-lg p-4 mb-4">
-                      <h5 className="font-semibold text-white mb-3">
-                        🥋 Phân Tích Defender
-                      </h5>
-                      <div className="space-y-3">
-                        <div className="flex items-center justify-between">
-                          <span className="text-sm text-gray-300">
-                            Loại huấn luyện:
-                          </span>
-                          <span className="text-sm text-blue-400 font-medium">
-                            {selectedImageDetail.defenderAnalysis.trainingType}
-                          </span>
-                        </div>
-                        <div className="flex items-center justify-between">
-                          <span className="text-sm text-gray-300">
-                            Hành động Defender (AI):
-                          </span>
-                          <span className="text-sm text-green-400 font-medium">
-                            {selectedImageDetail.defenderAnalysis
-                              .defenderAction === "block"
-                              ? "Chặn"
-                              : selectedImageDetail.defenderAnalysis
-                                  .defenderAction === "dodge"
-                              ? "Né"
-                              : selectedImageDetail.defenderAnalysis
-                                  .defenderAction === "kick"
-                              ? "Đá"
-                              : selectedImageDetail.defenderAnalysis
-                                  .defenderAction === "punch"
-                              ? "Đấm"
-                              : "Không xác định"}
-                          </span>
-                        </div>
-                        <div className="flex items-center justify-between">
-                          <span className="text-sm text-gray-300">
-                            Độ tin cậy:
-                          </span>
-                          <span className="text-sm text-blue-400 font-medium">
-                            {Math.round(
-                              selectedImageDetail.defenderAnalysis
-                                .defenderConfidence * 100
-                            )}
-                            %
-                          </span>
-                        </div>
-                        {selectedImageDetail.defenderAnalysis.attackerActions &&
-                          selectedImageDetail.defenderAnalysis.attackerActions
-                            .length > 0 && (
-                            <div className="flex items-center justify-between">
-                              <span className="text-sm text-gray-300">
-                                Hành động Attacker (AI):
-                              </span>
-                              <span className="text-sm text-red-400 font-medium">
-                                {selectedImageDetail.defenderAnalysis.attackerActions
-                                  .map((action) =>
-                                    action.action === "kick"
-                                      ? "Đá"
-                                      : action.action === "punch"
-                                      ? "Đấm"
-                                      : action.action === "block"
-                                      ? "Chặn"
-                                      : action.action === "dodge"
-                                      ? "Né"
-                                      : "Không xác định"
-                                  )
-                                  .join(", ")}
-                              </span>
-                            </div>
-                          )}
-                        <div className="flex items-center justify-between">
-                          <span className="text-sm text-gray-300">
-                            Điểm số:
-                          </span>
-                          <span
-                            className={`text-sm font-medium ${
-                              selectedImageDetail.defenderAnalysis.score >= 0.8
-                                ? "text-green-400"
-                                : selectedImageDetail.defenderAnalysis.score >=
-                                  0.5
-                                ? "text-yellow-400"
-                                : "text-red-400"
-                            }`}
-                          >
-                            {Math.round(
-                              selectedImageDetail.defenderAnalysis.score * 100
-                            )}
-                            %
-                          </span>
-                        </div>
-                        <div className="mt-3 p-3 bg-gray-600 rounded-lg">
-                          <div className="text-sm text-white font-medium mb-2">
-                            Phản hồi:
-                          </div>
-                          <div className="text-sm text-gray-300">
-                            {selectedImageDetail.defenderAnalysis.feedback}
-                          </div>
-                        </div>
-                        {selectedImageDetail.defenderAnalysis.details &&
-                          selectedImageDetail.defenderAnalysis.details.length >
-                            0 && (
-                            <div className="mt-3">
-                              <div className="text-sm text-white font-medium mb-2">
-                                Chi tiết:
-                              </div>
-                              <ul className="space-y-1">
-                                {selectedImageDetail.defenderAnalysis.details.map(
-                                  (detail, index) => (
-                                    <li
-                                      key={index}
-                                      className="text-sm text-gray-300 flex items-center"
-                                    >
-                                      <span className="w-2 h-2 bg-blue-400 rounded-full mr-2"></span>
-                                      {detail}
-                                    </li>
-                                  )
-                                )}
-                              </ul>
-                            </div>
-                          )}
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Basic Info */}
-                  <div className="bg-gray-700 rounded-lg p-4 mb-4">
-                    <h5 className="font-semibold text-white mb-2">
-                      Thông Tin Cơ Bản
-                    </h5>
-                    <div className="space-y-2 text-sm">
-                      <div className="flex justify-between">
-                        <span className="text-gray-300">Thời gian:</span>
-                        <span className="text-white">
-                          {new Date(
-                            selectedImageDetail.timestamp
-                          ).toLocaleString()}
-                        </span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span className="text-gray-300">Số tư thế:</span>
-                        <span className="text-white">
-                          {selectedImageDetail.poses?.length || 0}
-                        </span>
-                      </div>
-                      {selectedImageDetail.analysis && (
-                        <div className="flex justify-between">
-                          <span className="text-gray-300">Độ tin cậy:</span>
-                          <span className="text-white">
-                            {Math.round(
-                              (selectedImageDetail.analysis.confidence || 0) *
-                                100
-                            )}
-                            %
-                          </span>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
+      <ImageDetailModal
+        isOpen={showImageDetailModal}
+        selectedImageDetail={selectedImageDetail}
+        showRoleSelection={showRoleSelection}
+        defenderSelected={defenderSelected}
+        selectedPersonRoles={selectedPersonRoles}
+        imageZoom={imageZoom}
+        onClose={closeImageDetail}
+        onSelectDefender={selectDefender}
+        onDrawPoseSkeleton={drawPoseSkeleton}
+        onDrawBoundingBoxes={drawBoundingBoxes}
+      />
     </div>
   );
 }
