@@ -132,7 +132,20 @@ const SimplifiedImageDetailModal = ({
         throw new Error("No pose data available for analysis");
       }
 
-      const analysis = analyzePoseCorrectness(poseToAnalyze, trainingTypeId);
+      // Find attacker pose for relative analysis
+      let attackerPose = null;
+      if (selectedImageDetail.poses && selectedImageDetail.poses.length > 1) {
+        // Find the first pose that is not the defender
+        attackerPose = selectedImageDetail.poses.find(
+          (pose) => pose.track_id !== defenderSelected
+        );
+      }
+
+      const analysis = analyzePoseCorrectness(
+        poseToAnalyze,
+        trainingTypeId,
+        attackerPose
+      );
       setPoseAnalysis(analysis);
     } catch (error) {
       console.error("Pose analysis failed:", error);

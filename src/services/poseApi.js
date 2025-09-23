@@ -84,7 +84,6 @@ class PoseApiService {
       // imageData is already binary data from the calling function
       // Send binary image data directly
       this.socket.emit("frame", imageData);
-      console.log("Frame emitted to server");
       return true;
     } catch (error) {
       console.error("Error sending frame:", error);

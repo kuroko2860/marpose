@@ -165,20 +165,14 @@ export default function SimplifiedPoseCapture() {
         );
         setIsApiConnected(status.isConnected);
       }
-    }, 1000); // Check every 1 second for faster updates
+    }, 10000); // Check every 1 second for faster updates
 
     return () => clearInterval(connectionCheckInterval);
   }, [isApiConnected, poseApiService]);
 
   // Handle pose results from WebSocket
   const handlePoseResult = (data) => {
-    console.log("Received pose result:", data);
     if (data && data.success) {
-      console.log(
-        "Processing successful pose data with",
-        data.poses?.length || 0,
-        "poses"
-      );
       // Transform API data format to frontend format
       const transformedPoses = (data.poses || []).map((pose) => ({
         ...pose,
