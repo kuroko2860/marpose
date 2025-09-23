@@ -10,6 +10,7 @@ const KeyFrameExtractor = ({
   isTrainingSession,
   onKeyFrameCaptured,
   onAnalysisComplete,
+  defenderTrackId,
 }) => {
   const [poseHistory, setPoseHistory] = useState([]);
   const [isExtracting, setIsExtracting] = useState(false);
@@ -23,19 +24,26 @@ const KeyFrameExtractor = ({
 
   // Update pose history when new poses arrive
   useEffect(() => {
-    if (!isTrainingSession || !currentPoses || currentPoses.length === 0) {
+    if (
+      !isTrainingSession ||
+      !currentPoses ||
+      currentPoses.length === 0 ||
+      !defenderTrackId
+    ) {
       return;
     }
 
-    // Use the first detected pose (primary person)
-    const primaryPose = currentPoses[0];
-    if (!primaryPose || !primaryPose.keypoints_2d) {
+    // Find the defender pose by track ID
+    const defenderPose = currentPoses.find(
+      (pose) => pose.track_id === defenderTrackId
+    );
+    if (!defenderPose || !defenderPose.keypoints_2d) {
       return;
     }
 
-    // Add pose to history
+    // Add defender pose to history
     const newPose = {
-      ...primaryPose,
+      ...defenderPose,
       timestamp: Date.now(),
       frameIndex: historyRef.current.length,
     };
@@ -48,7 +56,7 @@ const KeyFrameExtractor = ({
     }
 
     setPoseHistory([...historyRef.current]);
-  }, [currentPoses, isTrainingSession]);
+  }, [currentPoses, isTrainingSession, defenderTrackId]);
 
   // Analyze pose stability and extract key frames
   useEffect(() => {
@@ -140,6 +148,11 @@ const KeyFrameExtractor = ({
         <h3 className="text-lg font-semibold text-white flex items-center">
           <span className="text-xl mr-2">🎯</span>
           Key Frame Extractor
+          {defenderTrackId && (
+            <span className="ml-2 text-xs bg-green-500/20 text-green-400 px-2 py-1 rounded">
+              Defender ID: {defenderTrackId}
+            </span>
+          )}
         </h3>
         <div
           className={`w-3 h-3 rounded-full ${
@@ -218,12 +231,16 @@ const KeyFrameExtractor = ({
 
       {/* Status */}
       <div className="text-xs text-gray-400">
-        {poseHistory.length < 30 ? (
-          <span>Building pose history... ({poseHistory.length}/30)</span>
+        {!defenderTrackId ? (
+          <span>Waiting for defender selection...</span>
+        ) : poseHistory.length < 30 ? (
+          <span>
+            Building defender pose history... ({poseHistory.length}/30)
+          </span>
         ) : stabilityScore > 0.85 ? (
-          <span className="text-green-400">Stable pose detected</span>
+          <span className="text-green-400">Defender stable pose detected</span>
         ) : (
-          <span>Monitoring for stable poses</span>
+          <span>Monitoring defender for stable poses</span>
         )}
       </div>
 

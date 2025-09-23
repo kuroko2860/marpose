@@ -3,14 +3,11 @@ import React from "react";
 const ImageDetailModal = ({
   isOpen,
   selectedImageDetail,
-  showRoleSelection,
-  defenderSelected,
-  selectedPersonRoles,
   imageZoom,
   onClose,
-  onSelectDefender,
   onDrawPoseSkeleton,
   onDrawBoundingBoxes,
+  defenderTrackId,
 }) => {
   if (!isOpen || !selectedImageDetail) return null;
 
@@ -161,52 +158,6 @@ const ImageDetailModal = ({
                   </div>
                 </div>
               )}
-
-              {/* Role Selection */}
-              {showRoleSelection &&
-                selectedImageDetail.poses &&
-                selectedImageDetail.poses.length > 0 && (
-                  <div className="bg-gray-700 rounded-lg p-4 mb-4">
-                    <h5 className="font-semibold text-white mb-3">
-                      🛡️ Chọn Defender
-                    </h5>
-                    <div className="mb-3 p-2 bg-purple-500/20 border border-purple-500/50 rounded text-sm text-purple-400">
-                      💜 Chọn người nào là Defender. Người còn lại sẽ tự động là
-                      Attacker.
-                    </div>
-                    <div className="space-y-3">
-                      {selectedImageDetail.poses.map((pose, index) => (
-                        <div
-                          key={index}
-                          className={`border rounded-lg p-3 cursor-pointer transition-colors ${
-                            defenderSelected === index
-                              ? "border-green-500 bg-green-500/10"
-                              : "border-gray-600 hover:border-purple-500"
-                          }`}
-                          onClick={() => onSelectDefender(index)}
-                        >
-                          <div className="flex items-center space-x-2">
-                            <div
-                              className={`w-4 h-4 rounded-full ${
-                                defenderSelected === index
-                                  ? "bg-green-500"
-                                  : "bg-purple-500"
-                              }`}
-                            ></div>
-                            <div className="text-sm text-gray-300">
-                              Person {index + 1}
-                            </div>
-                            {defenderSelected === index && (
-                              <div className="text-xs text-green-400 font-medium">
-                                ✅ Selected as Defender
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
 
               {/* Defender Analysis */}
               {selectedImageDetail.defenderAnalysis && (

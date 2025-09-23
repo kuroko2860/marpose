@@ -5,7 +5,7 @@ export const drawPoseSkeleton = (
   canvasWidth,
   canvasHeight,
   isDetailView = false,
-  selectedPersonRoles
+  defenderTrackId = null
 ) => {
   if (!poses || poses.length === 0) return;
 
@@ -30,21 +30,24 @@ export const drawPoseSkeleton = (
       return null;
     }).filter(kp => kp !== null);
 
-    // Determine role and colors based on assigned roles
-    let skeletonColor, keypointColor;
+    // Determine role and colors based on track ID
+    let skeletonColor, keypointColor, role;
 
-    if (selectedPersonRoles[index] === "defender") {
+    if (!defenderTrackId) {
+      // Purple for unassigned roles (before defender selection)
+      skeletonColor = "#8b5cf6";
+      keypointColor = "#7c3aed";
+      role = "unassigned";
+    } else if (pose.track_id === defenderTrackId) {
       // Green for defender
       skeletonColor = "#22c55e";
       keypointColor = "#16a34a";
-    } else if (selectedPersonRoles[index] === "attacker") {
+      role = "defender";
+    } else {
       // Red for attacker
       skeletonColor = "#ef4444";
       keypointColor = "#dc2626";
-    } else {
-      // Purple for unassigned roles
-      skeletonColor = "#8b5cf6";
-      keypointColor = "#7c3aed";
+      role = "attacker";
     }
 
     // Draw skeleton connections (simplified MoveNet connections)
@@ -120,9 +123,9 @@ export const drawPoseSkeleton = (
     // Draw pose label with larger font for detail view
     if (keypoints[0] && keypoints[0].x && keypoints[0].y) {
       let label;
-      if (selectedPersonRoles[index] === "defender") {
+      if (role === "defender") {
         label = "DEFENDER";
-      } else if (selectedPersonRoles[index] === "attacker") {
+      } else if (role === "attacker") {
         label = "ATTACKER";
       } else {
         label = "UNASSIGNED";
@@ -141,7 +144,7 @@ export const drawPoseSkeleton = (
 };
 
 // Draw bounding boxes and person IDs
-export const drawBoundingBoxes = (ctx, poses, canvasWidth, canvasHeight, defenderSelected = null, selectedPersonRoles = {}) => {
+export const drawBoundingBoxes = (ctx, poses, canvasWidth, canvasHeight, defenderTrackId = null) => {
   if (!poses || poses.length === 0) return;
 
   poses.forEach((pose, index) => {
@@ -162,20 +165,33 @@ export const drawBoundingBoxes = (ctx, poses, canvasWidth, canvasHeight, defende
       return; // No valid bbox
     }
 
-    const personId = index + 1;
+    // Determine colors based on track ID
+    let boxColor, textColor, role;
+    if (!defenderTrackId) {
+      boxColor = "#8b5cf6"; // Purple for unassigned
+      textColor = "#ffffff";
+      role = "unassigned";
+    } else if (pose.track_id === defenderTrackId) {
+      boxColor = "#22c55e"; // Green for defender
+      textColor = "#ffffff";
+      role = "defender";
+    } else {
+      boxColor = "#ef4444"; // Red for attacker
+      textColor = "#ffffff";
+      role = "attacker";
+    }
 
     // Draw bounding box
-    ctx.strokeStyle = "#3b82f6"; // Blue color
+    ctx.strokeStyle = boxColor;
     ctx.lineWidth = 3;
     ctx.strokeRect(bbox.x, bbox.y, bbox.width, bbox.height);
 
     // Draw person ID background
-    const idText = `Person ${personId}`;
+    const idText = `ID: ${pose.track_id}`;
     ctx.font = "bold 16px Arial";
 
-    // Use purple background for role selection mode
-    const isSelected = defenderSelected === index;
-    ctx.fillStyle = isSelected ? "#7c3aed" : "#8b5cf6"; // Purple background
+    // Use role-based background color
+    ctx.fillStyle = boxColor;
     const textMetrics = ctx.measureText(idText);
     const textWidth = textMetrics.width + 16;
     const textHeight = 24;
@@ -183,36 +199,39 @@ export const drawBoundingBoxes = (ctx, poses, canvasWidth, canvasHeight, defende
     ctx.fillRect(bbox.x, bbox.y - textHeight, textWidth, textHeight);
 
     // Draw person ID text
-    ctx.fillStyle = "#ffffff";
+    ctx.fillStyle = textColor;
     ctx.textAlign = "left";
     ctx.fillText(idText, bbox.x + 8, bbox.y - 6);
 
-    // Draw role if assigned
-    if (selectedPersonRoles[index]) {
-      const role = selectedPersonRoles[index];
-      const roleText = role === "defender" ? "DEFENDER" : "ATTACKER";
-      const roleColor = role === "defender" ? "#22c55e" : "#ef4444";
-
-      ctx.fillStyle = roleColor;
-      ctx.font = "bold 14px Arial";
-      const roleMetrics = ctx.measureText(roleText);
-      const roleWidth = roleMetrics.width + 12;
-      const roleHeight = 20;
-
-      ctx.fillRect(
-        bbox.x + bbox.width - roleWidth,
-        bbox.y - textHeight - roleHeight,
-        roleWidth,
-        roleHeight
-      );
-
-      ctx.fillStyle = "#ffffff";
-      ctx.textAlign = "center";
-      ctx.fillText(
-        roleText,
-        bbox.x + bbox.width - roleWidth / 2,
-        bbox.y - textHeight - 6
-      );
+    // Draw role label
+    let roleText;
+    if (role === "defender") {
+      roleText = "DEFENDER";
+    } else if (role === "attacker") {
+      roleText = "ATTACKER";
+    } else {
+      roleText = "UNASSIGNED";
     }
+    
+    ctx.fillStyle = boxColor;
+    ctx.font = "bold 14px Arial";
+    const roleMetrics = ctx.measureText(roleText);
+    const roleWidth = roleMetrics.width + 12;
+    const roleHeight = 20;
+
+    ctx.fillRect(
+      bbox.x + bbox.width - roleWidth,
+      bbox.y - textHeight - roleHeight,
+      roleWidth,
+      roleHeight
+    );
+
+    ctx.fillStyle = "#ffffff";
+    ctx.textAlign = "center";
+    ctx.fillText(
+      roleText,
+      bbox.x + bbox.width - roleWidth / 2,
+      bbox.y - textHeight - 6
+    );
   });
 };

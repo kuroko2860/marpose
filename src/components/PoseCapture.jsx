@@ -10,6 +10,7 @@ import TrainingTypeModal from "./TrainingTypeModal";
 import ImageDetailModal from "./ImageDetailModal";
 import SessionControls from "./SessionControls";
 import KeyFrameExtractor from "./KeyFrameExtractor";
+import DefenderSelectionSidebar from "./DefenderSelectionSidebar";
 import { drawPoseSkeleton, drawBoundingBoxes } from "../utils/drawingUtils";
 
 export default function PoseCapture() {
@@ -29,9 +30,6 @@ export default function PoseCapture() {
   const [showImageDetailModal, setShowImageDetailModal] = useState(false);
   const [isProcessingUpload, setIsProcessingUpload] = useState(false);
   const [imageZoom, setImageZoom] = useState(1);
-  const [selectedPersonRoles, setSelectedPersonRoles] = useState({});
-  const [showRoleSelection, setShowRoleSelection] = useState(false);
-  const [defenderSelected, setDefenderSelected] = useState(null);
 
   // API service states
   const [poseApiService] = useState(() => new PoseApiService());
@@ -46,6 +44,10 @@ export default function PoseCapture() {
   // Key frame extraction states
   const [extractedKeyFrames, setExtractedKeyFrames] = useState([]);
   const [sessionAnalysis, setSessionAnalysis] = useState(null);
+
+  // Defender selection states
+  const [defenderTrackId, setDefenderTrackId] = useState(null);
+  const [showDefenderSelection, setShowDefenderSelection] = useState(false);
 
   // Initialize API service connection
   const initializeApiService = async () => {
@@ -72,14 +74,14 @@ export default function PoseCapture() {
     }
   };
 
-  // Capture raw video frame without pose overlays
-  const captureRawVideoFrame = () => {
+  // Capture video frame with pose overlays
+  const captureVideoFrameWithOverlays = () => {
     if (!videoRef.current) {
       return null;
     }
 
     try {
-      // Create a temporary canvas for raw video capture
+      // Create a temporary canvas for video capture with overlays
       const tempCanvas = document.createElement("canvas");
       const tempCtx = tempCanvas.getContext("2d");
 
@@ -91,7 +93,7 @@ export default function PoseCapture() {
       tempCanvas.width = videoRef.current.videoWidth;
       tempCanvas.height = videoRef.current.videoHeight;
 
-      // Draw only the video frame (no pose overlays)
+      // Draw the video frame
       tempCtx.drawImage(
         videoRef.current,
         0,
@@ -99,6 +101,29 @@ export default function PoseCapture() {
         tempCanvas.width,
         tempCanvas.height
       );
+
+      // Draw pose overlays if poses are available
+      const posesToDraw = currentPosesRef.current;
+      if (posesToDraw && posesToDraw.length > 0) {
+        // Draw bounding boxes
+        drawBoundingBoxes(
+          tempCtx,
+          posesToDraw,
+          tempCanvas.width,
+          tempCanvas.height,
+          defenderTrackId
+        );
+
+        // Draw skeleton with role colors
+        drawPoseSkeleton(
+          tempCtx,
+          posesToDraw,
+          tempCanvas.width,
+          tempCanvas.height,
+          false,
+          defenderTrackId
+        );
+      }
 
       // Convert to data URL
       const imageData = tempCanvas.toDataURL("image/jpeg", 0.8);
@@ -113,8 +138,8 @@ export default function PoseCapture() {
   const handleKeyFrameCaptured = (keyFrame) => {
     setExtractedKeyFrames((prev) => [...prev.slice(-9), keyFrame]); // Keep last 10
 
-    // Capture raw video frame (without pose overlays)
-    const imageData = captureRawVideoFrame();
+    // Capture video frame with pose overlays
+    const imageData = captureVideoFrameWithOverlays();
 
     // Add to captured images for display
     const capturedImage = {
@@ -326,8 +351,8 @@ export default function PoseCapture() {
       setIsCapturing(true);
       setError(null);
 
-      // Capture raw video frame (without pose overlays)
-      const imageData = captureRawVideoFrame();
+      // Capture video frame with pose overlays
+      const imageData = captureVideoFrameWithOverlays();
 
       if (!imageData) {
         setError("Không thể chụp ảnh từ video. Vui lòng thử lại.");
@@ -441,6 +466,9 @@ export default function PoseCapture() {
     setError(null);
     setShowTrainingTypeModal(false);
     setSelectedTrainingType(trainingType);
+
+    // Show defender selection modal
+    setShowDefenderSelection(true);
   };
 
   // Reset current session
@@ -449,6 +477,14 @@ export default function PoseCapture() {
     setCapturedImages([]);
     setError(null);
     setSelectedTrainingType("");
+    setDefenderTrackId(null);
+    setShowDefenderSelection(false);
+  };
+
+  // Handle defender selection
+  const handleDefenderSelection = (trackId) => {
+    setDefenderTrackId(trackId);
+    setShowDefenderSelection(false);
   };
 
   // Show image detail modal
@@ -456,173 +492,12 @@ export default function PoseCapture() {
     setSelectedImageDetail(capture);
     setShowImageDetailModal(true);
     setImageZoom(1); // Reset zoom when opening modal
-    setSelectedPersonRoles({}); // Reset role selection
-    setShowRoleSelection(true); // Show role selection initially
-    setDefenderSelected(null); // Reset defender selection
   };
 
   // Close image detail modal
   const closeImageDetail = () => {
     setShowImageDetailModal(false);
     setSelectedImageDetail(null);
-    setSelectedPersonRoles({});
-    setShowRoleSelection(false);
-    setDefenderSelected(null);
-  };
-
-  // Handle defender selection
-  const selectDefender = (defenderIndex) => {
-    if (!selectedImageDetail || !selectedImageDetail.poses) return;
-
-    setDefenderSelected(defenderIndex);
-
-    // Assign roles: selected person is defender, others are attackers
-    const roles = {};
-    selectedImageDetail.poses.forEach((_, index) => {
-      roles[index] = index === defenderIndex ? "defender" : "attacker";
-    });
-
-    setSelectedPersonRoles(roles);
-
-    // Close role selection after a short delay
-    setTimeout(() => {
-      setShowRoleSelection(false);
-      redrawCanvas(false, roles);
-
-      // Always analyze defender pose and classify actions
-      const defenderAnalysis = analyzeDefenderPose(
-        selectedImageDetail.poses,
-        currentSession?.trainingType || "1", // Default to first training type if no session
-        roles // Pass the roles directly
-      );
-      if (defenderAnalysis) {
-        // Update the selected image detail with defender analysis
-        setSelectedImageDetail((prev) => ({
-          ...prev,
-          defenderAnalysis: defenderAnalysis,
-        }));
-      }
-    }, 500);
-  };
-
-  // Analyze defender pose and classify all actions
-  const analyzeDefenderPose = (
-    poses,
-    trainingTypeId,
-    roles = selectedPersonRoles
-  ) => {
-    if (!poses || poses.length === 0) return null;
-
-    // Find the defender pose
-    const defenderIndex = Object.keys(roles).find(
-      (index) => roles[index] === "defender"
-    );
-
-    if (defenderIndex === undefined) return null;
-
-    const defenderPose = poses[parseInt(defenderIndex)];
-    if (!defenderPose) return null;
-
-    // Get keypoints in the format expected by analyzePose function
-    let keypoints;
-    if (defenderPose.keypoints_2d) {
-      // API format: convert [x, y] to {x, y, score}
-      keypoints = defenderPose.keypoints_2d.map(([x, y]) => ({
-        x,
-        y,
-        score: 1.0,
-      }));
-    } else if (defenderPose.keypoints) {
-      // Old format: already in {x, y, score} format
-      keypoints = defenderPose.keypoints;
-    } else {
-      return null;
-    }
-
-    // Get training type details
-    const trainingType = trainingTypes.find((t) => t.id === trainingTypeId);
-    if (!trainingType) return null;
-
-    // Classify actions for all poses
-    const classifiedActions = poses.map((pose) => {
-      let poseKeypoints;
-      if (pose.keypoints_2d) {
-        poseKeypoints = pose.keypoints_2d.map(([x, y]) => ({
-          x,
-          y,
-          score: 1.0,
-        }));
-      } else if (pose.keypoints) {
-        poseKeypoints = pose.keypoints;
-      } else {
-        return { action: "unknown", confidence: 0 };
-      }
-
-      return classifyAction(poseKeypoints);
-    });
-
-    // Find attacker actions
-    const attackerActions = classifiedActions.filter(
-      (_, index) => roles[index] === "attacker"
-    );
-
-    // Analyze defender pose based on detected action
-    const defenderActionClassification =
-      classifiedActions[parseInt(defenderIndex)];
-    const defenderAction = defenderActionClassification.action;
-
-    const analysis = analyzePose(keypoints, defenderAction);
-
-    return {
-      ...analysis,
-      trainingType: trainingType.name,
-      defenderAction: defenderAction,
-      attackerActions: attackerActions,
-      allClassifiedActions: classifiedActions,
-      defenderConfidence: defenderActionClassification.confidence,
-    };
-  };
-
-  // Redraw canvas when roles change
-  const redrawCanvas = (showRoleSelection, roles) => {
-    if (!selectedImageDetail) return;
-
-    const canvas = document.querySelector(".max-w-\\[700px\\]");
-    if (!canvas) return;
-
-    const ctx = canvas.getContext("2d");
-    const img = new Image();
-
-    img.onload = () => {
-      // Clear canvas
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-      // Draw image
-      ctx.drawImage(img, 0, 0);
-
-      // Draw bounding boxes and skeletons
-      if (selectedImageDetail.poses && selectedImageDetail.poses.length > 0) {
-        drawBoundingBoxes(
-          ctx,
-          selectedImageDetail.poses,
-          canvas.width,
-          canvas.height
-        );
-        // Only draw skeletons if not in role selection mode
-        if (!showRoleSelection) {
-          drawPoseSkeleton(
-            ctx,
-            selectedImageDetail.poses,
-            canvas.width,
-            canvas.height,
-            true,
-            roles
-          );
-        }
-      }
-    };
-
-    img.src = selectedImageDetail.image;
   };
 
   // Process uploaded image using HTTP API
@@ -752,16 +627,22 @@ export default function PoseCapture() {
       const posesToDraw = currentPosesRef.current;
       if (posesToDraw && posesToDraw.length > 0) {
         // Draw bounding boxes
-        drawBoundingBoxes(ctx, posesToDraw, canvas.width, canvas.height);
+        drawBoundingBoxes(
+          ctx,
+          posesToDraw,
+          canvas.width,
+          canvas.height,
+          defenderTrackId
+        );
 
-        // Draw skeleton (without role colors for real-time view)
+        // Draw skeleton with role colors
         drawPoseSkeleton(
           ctx,
           posesToDraw,
           canvas.width,
           canvas.height,
           false,
-          {}
+          defenderTrackId
         );
       }
 
@@ -921,12 +802,9 @@ export default function PoseCapture() {
       <ImageDetailModal
         isOpen={showImageDetailModal}
         selectedImageDetail={selectedImageDetail}
-        showRoleSelection={showRoleSelection}
-        defenderSelected={defenderSelected}
-        selectedPersonRoles={selectedPersonRoles}
         imageZoom={imageZoom}
         onClose={closeImageDetail}
-        onSelectDefender={selectDefender}
+        defenderTrackId={defenderTrackId}
         onDrawPoseSkeleton={drawPoseSkeleton}
         onDrawBoundingBoxes={drawBoundingBoxes}
       />
@@ -937,6 +815,16 @@ export default function PoseCapture() {
         isTrainingSession={!!currentSession}
         onKeyFrameCaptured={handleKeyFrameCaptured}
         onAnalysisComplete={handleSessionAnalysisComplete}
+        defenderTrackId={defenderTrackId}
+      />
+
+      {/* Defender Selection Sidebar */}
+      <DefenderSelectionSidebar
+        isOpen={showDefenderSelection}
+        onClose={() => setShowDefenderSelection(false)}
+        onSelectDefender={handleDefenderSelection}
+        currentPoses={currentPoses}
+        isWebcamActive={isWebcamActive}
       />
     </div>
   );
