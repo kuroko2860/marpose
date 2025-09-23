@@ -46,9 +46,14 @@ export default function PoseCapture() {
   const [extractedKeyFrames, setExtractedKeyFrames] = useState([]);
   const [sessionAnalysis, setSessionAnalysis] = useState(null);
 
-  // Defender selection states
+  // Defender selection states (for webcam training)
   const [defenderTrackId, setDefenderTrackId] = useState(null);
   const [showDefenderSelection, setShowDefenderSelection] = useState(false);
+
+  // Image upload role selection states
+  const [selectedPersonRoles, setSelectedPersonRoles] = useState({});
+  const [showRoleSelection, setShowRoleSelection] = useState(false);
+  const [defenderSelected, setDefenderSelected] = useState(null);
 
   // Initialize API service connection
   const initializeApiService = async () => {
@@ -495,12 +500,89 @@ export default function PoseCapture() {
     setSelectedImageDetail(capture);
     setShowImageDetailModal(true);
     setImageZoom(1); // Reset zoom when opening modal
+
+    // For uploaded images (not webcam captures), show role selection
+    if (capture.source === "upload") {
+      setSelectedPersonRoles({}); // Reset role selection
+      setShowRoleSelection(true); // Show role selection initially
+      setDefenderSelected(null); // Reset defender selection
+    }
   };
 
   // Close image detail modal
   const closeImageDetail = () => {
     setShowImageDetailModal(false);
     setSelectedImageDetail(null);
+    setSelectedPersonRoles({});
+    setShowRoleSelection(false);
+    setDefenderSelected(null);
+  };
+
+  // Handle defender selection for uploaded images
+  const selectDefender = (defenderIndex) => {
+    if (!selectedImageDetail || !selectedImageDetail.poses) return;
+
+    setDefenderSelected(defenderIndex);
+
+    // Assign roles: selected person is defender, others are attackers
+    const roles = {};
+    selectedImageDetail.poses.forEach((_, index) => {
+      roles[index] = index === defenderIndex ? "defender" : "attacker";
+    });
+
+    setSelectedPersonRoles(roles);
+
+    // Close role selection after a short delay
+    setTimeout(() => {
+      setShowRoleSelection(false);
+      redrawCanvas(false, roles);
+    }, 500);
+  };
+
+  // Redraw canvas when roles change (for uploaded images)
+  const redrawCanvas = (showRoleSelection, roles) => {
+    if (!selectedImageDetail) return;
+
+    const canvas = document.querySelector(".max-w-\\[700px\\]");
+    if (!canvas) return;
+
+    const ctx = canvas.getContext("2d");
+    const img = new Image();
+
+    img.onload = () => {
+      // Clear canvas
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      // Draw image
+      ctx.drawImage(img, 0, 0);
+
+      // Draw bounding boxes and skeletons with role-based colors
+      if (selectedImageDetail.poses && selectedImageDetail.poses.length > 0) {
+        // Create a modified poses array with role information
+        const posesWithRoles = selectedImageDetail.poses.map((pose, index) => ({
+          ...pose,
+          role: roles[index] || "unassigned",
+        }));
+
+        drawBoundingBoxes(
+          ctx,
+          posesWithRoles,
+          canvas.width,
+          canvas.height,
+          null // No defenderTrackId for uploaded images
+        );
+        drawPoseSkeleton(
+          ctx,
+          posesWithRoles,
+          canvas.width,
+          canvas.height,
+          true,
+          null // No defenderTrackId for uploaded images
+        );
+      }
+    };
+
+    img.src = selectedImageDetail.image;
   };
 
   // Process uploaded image using HTTP API
@@ -810,6 +892,10 @@ export default function PoseCapture() {
         defenderTrackId={defenderTrackId}
         onDrawPoseSkeleton={drawPoseSkeleton}
         onDrawBoundingBoxes={drawBoundingBoxes}
+        showRoleSelection={showRoleSelection}
+        defenderSelected={defenderSelected}
+        selectedPersonRoles={selectedPersonRoles}
+        onSelectDefender={selectDefender}
       />
 
       {/* Key Frame Extractor */}

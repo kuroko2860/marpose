@@ -30,10 +30,23 @@ export const drawPoseSkeleton = (
       return null;
     }).filter(kp => kp !== null);
 
-    // Determine role and colors based on track ID
+    // Determine role and colors based on track ID or role property
     let skeletonColor, keypointColor, role;
 
-    if (!defenderTrackId) {
+    // Check if pose has a role property (for uploaded images)
+    if (pose.role) {
+      role = pose.role;
+      if (role === "defender") {
+        skeletonColor = "#22c55e";
+        keypointColor = "#16a34a";
+      } else if (role === "attacker") {
+        skeletonColor = "#ef4444";
+        keypointColor = "#dc2626";
+      } else {
+        skeletonColor = "#8b5cf6";
+        keypointColor = "#7c3aed";
+      }
+    } else if (!defenderTrackId) {
       // Purple for unassigned roles (before defender selection)
       skeletonColor = "#8b5cf6";
       keypointColor = "#7c3aed";
@@ -134,11 +147,11 @@ export const drawPoseSkeleton = (
       ctx.fillStyle = skeletonColor;
       ctx.font = labelFontSize;
       ctx.textAlign = "center";
-      ctx.fillText(
-        label,
-        keypoints[0].x,
-        keypoints[0].y - (isDetailView ? 30 : 20)
-      );
+      // ctx.fillText(
+      //   label,
+      //   keypoints[0].x,
+      //   keypoints[0].y - (isDetailView ? 30 : 20)
+      // );
     }
   });
 };
@@ -165,9 +178,23 @@ export const drawBoundingBoxes = (ctx, poses, canvasWidth, canvasHeight, defende
       return; // No valid bbox
     }
 
-    // Determine colors based on track ID
+    // Determine colors based on track ID or role property
     let boxColor, textColor, role;
-    if (!defenderTrackId) {
+    
+    // Check if pose has a role property (for uploaded images)
+    if (pose.role) {
+      role = pose.role;
+      if (role === "defender") {
+        boxColor = "#22c55e"; // Green for defender
+        textColor = "#ffffff";
+      } else if (role === "attacker") {
+        boxColor = "#ef4444"; // Red for attacker
+        textColor = "#ffffff";
+      } else {
+        boxColor = "#8b5cf6"; // Purple for unassigned
+        textColor = "#ffffff";
+      }
+    } else if (!defenderTrackId) {
       boxColor = "#8b5cf6"; // Purple for unassigned
       textColor = "#ffffff";
       role = "unassigned";
@@ -219,19 +246,19 @@ export const drawBoundingBoxes = (ctx, poses, canvasWidth, canvasHeight, defende
     const roleWidth = roleMetrics.width + 12;
     const roleHeight = 20;
 
-    ctx.fillRect(
-      bbox.x + bbox.width - roleWidth,
-      bbox.y - textHeight - roleHeight,
-      roleWidth,
-      roleHeight
-    );
+    // ctx.fillRect(
+    //   bbox.x + bbox.width - roleWidth,
+    //   bbox.y - textHeight - roleHeight,
+    //   roleWidth,
+    //   roleHeight
+    // );
 
     ctx.fillStyle = "#ffffff";
     ctx.textAlign = "center";
-    ctx.fillText(
-      roleText,
-      bbox.x + bbox.width - roleWidth / 2,
-      bbox.y - textHeight - 6
-    );
+    // ctx.fillText(
+    //   roleText,
+    //   bbox.x + bbox.width - roleWidth / 2,
+    //   bbox.y - textHeight - 6
+    // );
   });
 };
