@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React from "react";
 
 const DefenderSelectionSidebar = ({
   isOpen,
@@ -7,140 +7,109 @@ const DefenderSelectionSidebar = ({
   currentPoses,
   isWebcamActive,
 }) => {
-  const [selectedDefenderId, setSelectedDefenderId] = useState(null);
-
-  // Auto-select first pose if only one person detected
-  useEffect(() => {
-    if (currentPoses && currentPoses.length === 1 && !selectedDefenderId) {
-      setSelectedDefenderId(currentPoses[0].track_id);
-    }
-  }, [currentPoses, selectedDefenderId]);
-
-  const handleConfirm = () => {
-    if (selectedDefenderId) {
-      onSelectDefender(selectedDefenderId);
-      onClose();
-    }
-  };
-
-  const handleCancel = () => {
-    setSelectedDefenderId(null);
-    onClose();
-  };
-
   if (!isOpen) return null;
 
   return (
-    <div className="fixed top-0 right-0 h-full w-80 bg-gray-800/95 backdrop-blur-sm border-l border-gray-700 z-40 flex flex-col">
-      {/* Header */}
-      <div className="p-6 border-b border-gray-700">
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="text-xl font-bold text-white flex items-center">
-            <span className="text-2xl mr-3">🛡️</span>
-            Chọn Người Phòng Thủ
-          </h2>
-          <button
-            onClick={onClose}
-            className="text-gray-400 hover:text-white transition-colors"
-          >
-            <span className="text-xl">×</span>
-          </button>
-        </div>
-        <p className="text-gray-300 text-sm">
-          Chọn người sẽ là người phòng thủ trong buổi tập
-        </p>
-      </div>
-
-      {/* Content */}
-      <div className="flex-1 p-6 overflow-y-auto">
-        {!isWebcamActive ? (
-          <div className="text-center py-8">
-            <div className="text-4xl mb-4">📹</div>
-            <p className="text-gray-300 mb-2">Camera chưa được bật</p>
-            <p className="text-gray-400 text-sm">
-              Vui lòng bật camera trước khi chọn người phòng thủ
-            </p>
-          </div>
-        ) : !currentPoses || currentPoses.length === 0 ? (
-          <div className="text-center py-8">
-            <div className="text-4xl mb-4">👤</div>
-            <p className="text-gray-300 mb-2">Chưa phát hiện người</p>
-            <p className="text-gray-400 text-sm">
-              Hãy đứng trước camera để hệ thống phát hiện
-            </p>
-          </div>
-        ) : (
-          <div className="space-y-4">
-            <div className="text-sm text-gray-300 mb-4">
-              Phát hiện {currentPoses.length} người. Chọn người phòng thủ:
-            </div>
-
-            {currentPoses.map((pose, index) => (
-              <div
-                key={pose.track_id}
-                className={`p-4 rounded-lg border-2 cursor-pointer transition-all ${
-                  selectedDefenderId === pose.track_id
-                    ? "border-green-500 bg-green-500/10"
-                    : "border-gray-600 bg-gray-700/50 hover:border-gray-500"
-                }`}
-                onClick={() => setSelectedDefenderId(pose.track_id)}
+    <div className="fixed inset-0 z-40 pointer-events-none">
+      {/* Sidebar */}
+      <div className="fixed right-0 top-0 h-full w-80 bg-gray-800/95 backdrop-blur-sm border-l border-gray-700 shadow-2xl pointer-events-auto">
+        <div className="p-6">
+          {/* Header */}
+          <div className="flex items-center justify-between mb-6">
+            <h3 className="text-xl font-bold text-white">
+              🛡️ Chọn Người Phòng Thủ
+            </h3>
+            <button
+              onClick={onClose}
+              className="text-gray-400 hover:text-white transition-colors"
+            >
+              <svg
+                className="w-6 h-6"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
               >
-                <div className="flex items-center justify-between">
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M6 18L18 6M6 6l12 12"
+                />
+              </svg>
+            </button>
+          </div>
+
+          {/* Instructions */}
+          <div className="mb-6 p-4 bg-blue-500/20 border border-blue-500/30 rounded-lg">
+            <p className="text-blue-300 text-sm">
+              📹 Nhìn vào video bên trái và chọn người sẽ là người phòng thủ
+              (defender) trong bài tập.
+            </p>
+          </div>
+
+          {/* Pose List */}
+          <div className="space-y-3">
+            {currentPoses.length === 0 ? (
+              <div className="text-center py-8">
+                <div className="text-4xl mb-3">👥</div>
+                <p className="text-gray-400">
+                  {isWebcamActive
+                    ? "Đang chờ phát hiện người..."
+                    : "Vui lòng bật camera để phát hiện người"}
+                </p>
+              </div>
+            ) : (
+              currentPoses.map((pose, index) => (
+                <button
+                  key={pose.track_id || index}
+                  onClick={() => onSelectDefender(pose.track_id)}
+                  className="w-full p-4 bg-gray-700 hover:bg-gray-600 rounded-lg border border-gray-600 hover:border-green-500 transition-colors text-left group"
+                >
                   <div className="flex items-center space-x-3">
-                    <div
-                      className={`w-4 h-4 rounded-full ${
-                        selectedDefenderId === pose.track_id
-                          ? "bg-green-500"
-                          : "bg-gray-500"
-                      }`}
-                    />
-                    <div>
+                    <div className="w-12 h-12 bg-gray-600 rounded-full flex items-center justify-center group-hover:bg-green-500 transition-colors">
+                      <span className="text-white font-bold text-lg">
+                        {pose.track_id || index + 1}
+                      </span>
+                    </div>
+                    <div className="flex-1">
                       <div className="text-white font-medium">
-                        Người {index + 1} (ID: {pose.track_id})
+                        Người {pose.track_id || index + 1}
                       </div>
-                      <div className="text-sm text-gray-400">
-                        {selectedDefenderId === pose.track_id
-                          ? "🛡️ Người phòng thủ"
-                          : "⚔️ Người tấn công"}
+                      <div className="text-gray-400 text-sm">
+                        ID: {pose.track_id || `temp_${index}`}
+                      </div>
+                      <div className="text-gray-400 text-sm">
+                        Độ tin cậy: {Math.round((pose.score || 1.0) * 100)}%
                       </div>
                     </div>
+                    <div className="text-gray-400 group-hover:text-green-400 transition-colors">
+                      <svg
+                        className="w-5 h-5"
+                        fill="none"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth={2}
+                          d="M9 5l7 7-7 7"
+                        />
+                      </svg>
+                    </div>
                   </div>
-                  {selectedDefenderId === pose.track_id && (
-                    <div className="text-green-400 text-xl">✓</div>
-                  )}
-                </div>
-              </div>
-            ))}
-
-            <div className="bg-blue-500/10 border border-blue-500/30 rounded-lg p-4 mt-4">
-              <div className="flex items-center space-x-2 text-blue-400 text-sm">
-                <span>💡</span>
-                <span>
-                  Người phòng thủ sẽ được hiển thị màu xanh lá, người tấn công
-                  màu đỏ
-                </span>
-              </div>
-            </div>
+                </button>
+              ))
+            )}
           </div>
-        )}
-      </div>
 
-      {/* Footer */}
-      <div className="p-6 border-t border-gray-700">
-        <div className="flex space-x-3">
-          <button
-            onClick={handleCancel}
-            className="flex-1 px-4 py-3 bg-gray-600 hover:bg-gray-500 text-white rounded-lg transition-colors"
-          >
-            Hủy
-          </button>
-          <button
-            onClick={handleConfirm}
-            disabled={!selectedDefenderId || !isWebcamActive}
-            className="flex-1 px-4 py-3 bg-green-600 hover:bg-green-500 disabled:bg-gray-600 disabled:cursor-not-allowed text-white rounded-lg transition-colors"
-          >
-            Xác nhận
-          </button>
+          {/* Footer */}
+          <div className="mt-6 p-4 bg-gray-700/50 rounded-lg">
+            <p className="text-gray-300 text-sm">
+              💡 <strong>Mẹo:</strong> Người phòng thủ sẽ được hiển thị màu xanh
+              lá, người tấn công sẽ hiển thị màu đỏ.
+            </p>
+          </div>
         </div>
       </div>
     </div>

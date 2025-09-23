@@ -19,14 +19,16 @@ const ConnectionStatus = ({ isApiConnected, isStreaming, onReconnect }) => {
             </span>
           )}
         </div>
-        {!isApiConnected && (
-          <button
-            onClick={onReconnect}
-            className="bg-purple-500 hover:bg-purple-600 text-white px-3 py-1 rounded text-sm transition-colors"
-          >
-            Kết Nối Lại
-          </button>
-        )}
+        <div className="flex space-x-2">
+          {!isApiConnected && (
+            <button
+              onClick={onReconnect}
+              className="bg-purple-500 hover:bg-purple-600 text-white px-3 py-1 rounded text-sm transition-colors"
+            >
+              Kết Nối Lại
+            </button>
+          )}
+        </div>
       </div>
     </div>
   );

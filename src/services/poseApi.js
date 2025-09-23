@@ -39,10 +39,12 @@ class PoseApiService {
       this.socket.on("connect", () => {
         this.isConnected = true;
         this.reconnectAttempts = 0;
+        console.log("✅ WebSocket connected successfully");
       });
 
       this.socket.on("disconnect", (reason) => {
         this.isConnected = false;
+        console.log("❌ WebSocket disconnected:", reason);
       });
 
       this.socket.on("connect_error", (error) => {
@@ -74,6 +76,7 @@ class PoseApiService {
   // Send frame for real-time pose analysis
   async sendFrameForAnalysis(imageData) {
     if (!this.socket || !this.isConnected) {
+      console.log("Cannot send frame - socket:", !!this.socket, "connected:", this.isConnected);
       return false;
     }
 
@@ -81,6 +84,7 @@ class PoseApiService {
       // imageData is already binary data from the calling function
       // Send binary image data directly
       this.socket.emit("frame", imageData);
+      console.log("Frame emitted to server");
       return true;
     } catch (error) {
       console.error("Error sending frame:", error);

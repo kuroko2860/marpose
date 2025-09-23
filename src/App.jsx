@@ -1,9 +1,9 @@
-import PoseCapture from "./components/PoseCapture";
+import SimplifiedPoseCapture from "./components/SimplifiedPoseCapture";
 
 function App() {
   return (
     <div className="App">
-      <PoseCapture />
+      <SimplifiedPoseCapture />
     </div>
   );
 }
