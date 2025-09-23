@@ -51,6 +51,12 @@ const CapturedImages = ({ capturedImages, onImageClick }) => {
                         🎯 Key Frame
                       </span>
                     )}
+                    {capture.motionSequence &&
+                      capture.motionSequence.length > 1 && (
+                        <span className="bg-blue-500/20 text-blue-400 px-2 py-1 rounded-full text-xs font-medium">
+                          🎬 {capture.motionSequence.length} khung
+                        </span>
+                      )}
                   </div>
                   <div className="text-sm text-blue-400 mb-1">
                     Tư thế phát hiện: {capture.poses?.length || 0}

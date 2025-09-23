@@ -51,26 +51,6 @@ const VideoFeed = ({
             </div>
           </div>
         )}
-
-        {/* Overlay Info */}
-        {isWebcamActive && (
-          <div className="absolute top-4 left-4 bg-black/70 backdrop-blur-sm rounded-lg px-3 py-2">
-            <div className="flex items-center space-x-4 text-sm">
-              <div className="flex items-center space-x-2">
-                <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse"></div>
-                <span className="text-green-400">Camera Đang Hoạt Động</span>
-              </div>
-              {currentPoses.length > 0 && (
-                <div className="flex items-center space-x-2">
-                  <div className="w-2 h-2 bg-blue-400 rounded-full animate-pulse"></div>
-                  <span className="text-blue-400">
-                    {currentPoses.length} Tư Thế Phát Hiện
-                  </span>
-                </div>
-              )}
-            </div>
-          </div>
-        )}
       </div>
     </div>
   );

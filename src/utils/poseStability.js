@@ -1,6 +1,7 @@
 /**
  * Pose Stability Detection Utilities
  * Detects when poses are stable for key frame extraction
+ * Also includes motion-based keyframe detection for action movements
  */
 
 /**
@@ -217,4 +218,170 @@ export const analyzePoseSequence = (poseHistory) => {
   analysis.keyFrames = extractKeyFrames(poseHistory);
   
   return analysis;
+};
+
+/**
+ * Calculate motion magnitude between two poses
+ */
+export const calculateMotionMagnitude = (pose1, pose2) => {
+  if (!pose1.keypoints_2d || !pose2.keypoints_2d) {
+    return 0;
+  }
+  
+  const keypoints1 = pose1.keypoints_2d;
+  const keypoints2 = pose2.keypoints_2d;
+  
+  if (keypoints1.length !== keypoints2.length) {
+    return 0;
+  }
+  
+  let totalMotion = 0;
+  let validPoints = 0;
+  
+  for (let i = 0; i < keypoints1.length; i++) {
+    const [x1, y1] = keypoints1[i];
+    const [x2, y2] = keypoints2[i];
+    
+    // Skip invalid keypoints
+    if (x1 === 0 && y1 === 0) continue;
+    if (x2 === 0 && y2 === 0) continue;
+    
+    const motion = Math.sqrt((x1 - x2) ** 2 + (y1 - y2) ** 2);
+    totalMotion += motion;
+    validPoints++;
+  }
+  
+  if (validPoints === 0) {
+    return 0;
+  }
+  
+  return totalMotion / validPoints;
+};
+
+/**
+ * Detect action movements (punching, kicking, blocking)
+ */
+export const detectActionMovement = (poseHistory) => {
+  if (poseHistory.length < 10) {
+    return null;
+  }
+  
+  const recentPoses = poseHistory.slice(-10);
+  const motionMagnitudes = [];
+  
+  // Calculate motion between consecutive poses
+  for (let i = 1; i < recentPoses.length; i++) {
+    const motion = calculateMotionMagnitude(recentPoses[i-1], recentPoses[i]);
+    motionMagnitudes.push(motion);
+  }
+  
+  const avgMotion = motionMagnitudes.reduce((a, b) => a + b, 0) / motionMagnitudes.length;
+  const maxMotion = Math.max(...motionMagnitudes);
+  
+  // Detect action based on motion patterns
+  const currentPose = recentPoses[recentPoses.length - 1];
+  const keypoints = currentPose.keypoints_2d || [];
+  
+  // Calculate joint velocities (motion in last few frames)
+  const jointVelocities = {};
+  for (let i = 0; i < keypoints.length; i++) {
+    if (i < recentPoses.length - 1) {
+      const [x1, y1] = keypoints[i];
+      const [x2, y2] = recentPoses[recentPoses.length - 2].keypoints_2d[i] || [0, 0];
+      
+      if (x1 !== 0 && y1 !== 0 && x2 !== 0 && y2 !== 0) {
+        jointVelocities[i] = Math.sqrt((x1 - x2) ** 2 + (y1 - y2) ** 2);
+      }
+    }
+  }
+  
+  // Find most active joints
+  const activeJoints = Object.entries(jointVelocities)
+    .sort(([,a], [,b]) => b - a)
+    .slice(0, 5)
+    .map(([jointIndex]) => parseInt(jointIndex));
+  
+  // Action detection logic
+  let actionType = 'unknown';
+  let confidence = 0;
+  
+  // Punching detection - high arm movement
+  const armJoints = [5, 6, 7, 8, 9, 10]; // Shoulders, elbows, wrists
+  const armActivity = activeJoints.filter(joint => armJoints.includes(joint)).length;
+  const armMotion = armJoints.reduce((sum, joint) => sum + (jointVelocities[joint] || 0), 0);
+  
+  if (armActivity >= 2 && armMotion > 50 && maxMotion > 30) {
+    actionType = 'punching';
+    confidence = Math.min(0.9, (armActivity / 3) * (armMotion / 100));
+  }
+  
+  // Kicking detection - high leg movement
+  const legJoints = [11, 12, 13, 14, 15, 16]; // Hips, knees, ankles
+  const legActivity = activeJoints.filter(joint => legJoints.includes(joint)).length;
+  const legMotion = legJoints.reduce((sum, joint) => sum + (jointVelocities[joint] || 0), 0);
+  
+  if (legActivity >= 2 && legMotion > 40 && maxMotion > 25) {
+    actionType = 'kicking';
+    confidence = Math.min(0.9, (legActivity / 3) * (legMotion / 80));
+  }
+  
+  // Blocking detection - moderate arm movement with stability
+  if (armActivity >= 1 && armMotion > 20 && armMotion < 60 && avgMotion < 15) {
+    actionType = 'blocking';
+    confidence = Math.min(0.8, (armActivity / 2) * (armMotion / 50));
+  }
+  
+  // Only return action if confidence is high enough
+  if (confidence > 0.3) {
+    return {
+      type: actionType,
+      confidence: confidence,
+      motionMagnitude: avgMotion,
+      peakMotion: maxMotion,
+      activeJoints: activeJoints,
+      timestamp: currentPose.timestamp || Date.now()
+    };
+  }
+  
+  return null;
+};
+
+/**
+ * Detect action completion pattern (end of movement)
+ */
+export const detectActionCompletionPattern = (poseHistory) => {
+  if (poseHistory.length < 15) {
+    return null;
+  }
+  
+  const recentPoses = poseHistory.slice(-15);
+  const motionMagnitudes = [];
+  
+  // Calculate motion in sliding windows
+  for (let i = 1; i < recentPoses.length; i++) {
+    const motion = calculateMotionMagnitude(recentPoses[i-1], recentPoses[i]);
+    motionMagnitudes.push(motion);
+  }
+  
+  // Check for motion pattern: high -> medium -> low (action completion)
+  const firstThird = motionMagnitudes.slice(0, 5);
+  const middleThird = motionMagnitudes.slice(5, 10);
+  const lastThird = motionMagnitudes.slice(10);
+  
+  const avgFirst = firstThird.reduce((a, b) => a + b, 0) / firstThird.length;
+  const avgMiddle = middleThird.reduce((a, b) => a + b, 0) / middleThird.length;
+  const avgLast = lastThird.reduce((a, b) => a + b, 0) / lastThird.length;
+  
+  // Action completion pattern: decreasing motion
+  if (avgFirst > 20 && avgMiddle > 10 && avgLast < 8) {
+    const currentPose = recentPoses[recentPoses.length - 1];
+    return {
+      type: 'action_completion',
+      confidence: Math.min(0.9, (avgFirst - avgLast) / avgFirst),
+      motionPattern: { start: avgFirst, middle: avgMiddle, end: avgLast },
+      timestamp: currentPose.timestamp || Date.now()
+    };
+  }
+  
+  return null;
 };

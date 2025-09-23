@@ -140,6 +140,47 @@ export default function PoseCapture() {
     }
   };
 
+  // Capture webcam frame with overlays
+  const captureWebcamFrame = () => {
+    if (!videoRef.current || !canvasRef.current) {
+      return null;
+    }
+
+    const canvas = canvasRef.current;
+    const ctx = canvas.getContext("2d");
+
+    // Clear canvas
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    // Draw video frame
+    ctx.drawImage(videoRef.current, 0, 0, canvas.width, canvas.height);
+
+    // Draw current poses with overlays
+    if (currentPosesRef.current && currentPosesRef.current.length > 0) {
+      // Draw bounding boxes
+      drawBoundingBoxes(
+        ctx,
+        currentPosesRef.current,
+        canvas.width,
+        canvas.height,
+        defenderTrackIdRef.current
+      );
+
+      // Draw skeleton with role colors
+      drawPoseSkeleton(
+        ctx,
+        currentPosesRef.current,
+        canvas.width,
+        canvas.height,
+        false,
+        defenderTrackIdRef.current
+      );
+    }
+
+    // Return the canvas data as base64
+    return canvas.toDataURL("image/jpeg", 0.8);
+  };
+
   // Handle key frame capture
   const handleKeyFrameCaptured = (keyFrame) => {
     setExtractedKeyFrames((prev) => [...prev.slice(-9), keyFrame]); // Keep last 10
@@ -147,12 +188,16 @@ export default function PoseCapture() {
     // Capture video frame with pose overlays
     const imageData = captureVideoFrameWithOverlays();
 
+    // Get the motion sequence (20 frames before + current frame)
+    const motionSequence = keyFrame.motionSequence || [];
+
     // Add to captured images for display
     const capturedImage = {
       id: keyFrame.id,
       image: imageData,
       timestamp: new Date(keyFrame.timestamp).toISOString(),
       poses: [keyFrame.pose],
+      motionSequence: motionSequence, // Store the motion sequence
       analysis: {
         total_poses: 1,
         confidence: keyFrame.stabilityScore,
@@ -905,6 +950,7 @@ export default function PoseCapture() {
         onKeyFrameCaptured={handleKeyFrameCaptured}
         onAnalysisComplete={handleSessionAnalysisComplete}
         defenderTrackId={defenderTrackId}
+        onCaptureWebcamFrame={captureWebcamFrame}
       />
 
       {/* Defender Selection Sidebar */}

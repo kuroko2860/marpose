@@ -1,4 +1,6 @@
-import React from "react";
+import React, { useState, useEffect } from "react";
+import { analyzeMotion } from "../utils/motionAnalysis";
+import MotionSequencePlayer from "./MotionSequencePlayer";
 
 const ImageDetailModal = ({
   isOpen,
@@ -13,6 +15,51 @@ const ImageDetailModal = ({
   selectedPersonRoles,
   onSelectDefender,
 }) => {
+  const [motionAnalysis, setMotionAnalysis] = useState(null);
+  const [isAnalyzingMotion, setIsAnalyzingMotion] = useState(false);
+  const [motionAnalysisError, setMotionAnalysisError] = useState(null);
+
+  // Analyze motion when modal opens and has motion sequence
+  useEffect(() => {
+    if (
+      isOpen &&
+      selectedImageDetail?.motionSequence &&
+      selectedImageDetail.motionSequence.length > 1
+    ) {
+      analyzeMotionSequence();
+    } else {
+      setMotionAnalysis(null);
+      setMotionAnalysisError(null);
+    }
+  }, [isOpen, selectedImageDetail]);
+
+  const analyzeMotionSequence = async () => {
+    if (
+      !selectedImageDetail?.motionSequence ||
+      selectedImageDetail.motionSequence.length < 2
+    ) {
+      return;
+    }
+
+    setIsAnalyzingMotion(true);
+    setMotionAnalysisError(null);
+
+    try {
+      // Simulate processing time for better UX
+      await new Promise((resolve) => setTimeout(resolve, 300));
+
+      const analysis = analyzeMotion(
+        selectedImageDetail.motionSequence,
+        selectedImageDetail.keyFrameType
+      );
+      setMotionAnalysis(analysis);
+    } catch (error) {
+      setMotionAnalysisError(error.message);
+    } finally {
+      setIsAnalyzingMotion(false);
+    }
+  };
+
   if (!isOpen || !selectedImageDetail) return null;
 
   return (
@@ -32,95 +79,23 @@ const ImageDetailModal = ({
         {/* Main Content */}
         <div className="flex-1 flex overflow-hidden">
           {/* Image Section - Half Screen */}
-          <div className="w-2/3 flex flex-col">
-            <div className="flex items-center justify-between p-4 bg-gray-800/50 border-b border-gray-700">
-              <h4 className="text-lg font-semibold text-white">
-                Ảnh với Skeleton Tư Thế
-              </h4>
-            </div>
-            <div className="flex-1 bg-black overflow-auto">
+          <div className="w-2/3 flex justify-center items-center">
+            {selectedImageDetail.motionSequence &&
+            selectedImageDetail.motionSequence.length > 1 ? (
+              <MotionSequencePlayer
+                motionSequence={selectedImageDetail.motionSequence}
+                poses={selectedImageDetail.poses}
+                onDrawPoseSkeleton={onDrawPoseSkeleton}
+                onDrawBoundingBoxes={onDrawBoundingBoxes}
+                defenderTrackId={defenderTrackId}
+              />
+            ) : (
               <img
                 src={selectedImageDetail.image}
                 alt="Captured pose with skeleton"
                 className="object-scale-down"
-                onLoad={(e) => {
-                  // Draw pose skeleton on image load
-                  const img = e.target;
-                  const canvas = document.createElement("canvas");
-                  const ctx = canvas.getContext("2d");
-
-                  // Use original image dimensions for better quality
-                  canvas.width = img.naturalWidth;
-                  canvas.height = img.naturalHeight;
-
-                  // Draw image
-                  ctx.drawImage(img, 0, 0);
-
-                  // Draw bounding boxes first
-                  if (
-                    selectedImageDetail.poses &&
-                    selectedImageDetail.poses.length > 0
-                  ) {
-                    // For uploaded images, use role-based colors
-                    if (
-                      selectedImageDetail.source === "upload" &&
-                      selectedPersonRoles
-                    ) {
-                      // Create poses with role information
-                      const posesWithRoles = selectedImageDetail.poses.map(
-                        (pose, index) => ({
-                          ...pose,
-                          role: selectedPersonRoles[index] || "unassigned",
-                        })
-                      );
-
-                      onDrawBoundingBoxes(
-                        ctx,
-                        posesWithRoles,
-                        canvas.width,
-                        canvas.height,
-                        null // No defenderTrackId for uploaded images
-                      );
-
-                      onDrawPoseSkeleton(
-                        ctx,
-                        posesWithRoles,
-                        canvas.width,
-                        canvas.height,
-                        true, // Enable detail view mode
-                        null // No defenderTrackId for uploaded images
-                      );
-                    } else {
-                      // For webcam images, use defenderTrackId
-                      onDrawBoundingBoxes(
-                        ctx,
-                        selectedImageDetail.poses,
-                        canvas.width,
-                        canvas.height,
-                        defenderTrackId
-                      );
-
-                      onDrawPoseSkeleton(
-                        ctx,
-                        selectedImageDetail.poses,
-                        canvas.width,
-                        canvas.height,
-                        true, // Enable detail view mode
-                        defenderTrackId
-                      );
-                    }
-                  }
-
-                  // Replace image with canvas
-                  img.style.display = "none";
-                  img.parentNode.appendChild(canvas);
-                  canvas.className =
-                    "max-w-[700px] transition-transform duration-200";
-                  canvas.style.transform = `scale(${imageZoom})`;
-                  canvas.style.transformOrigin = "top left";
-                }}
               />
-            </div>
+            )}
           </div>
 
           {/* Analysis Section - Half Screen */}
@@ -151,44 +126,6 @@ const ImageDetailModal = ({
                     <span className="font-medium">
                       Lỗi: {selectedImageDetail.error}
                     </span>
-                  </div>
-                </div>
-              )}
-
-              {/* Server Analysis Results */}
-              {selectedImageDetail.analysis && (
-                <div className="bg-gray-700 rounded-lg p-4 mb-4">
-                  <h5 className="font-semibold text-white mb-3">
-                    🥋 Phân Tích Server
-                  </h5>
-                  <div className="space-y-2 text-sm">
-                    <div className="flex justify-between">
-                      <span className="text-gray-300">Số tư thế:</span>
-                      <span className="text-white">
-                        {selectedImageDetail.poses?.length || 0}
-                      </span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-gray-300">Độ tin cậy:</span>
-                      <span className="text-white">
-                        {Math.round(
-                          (selectedImageDetail.analysis.confidence || 0) * 100
-                        )}
-                        %
-                      </span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-gray-300">Thời gian xử lý:</span>
-                      <span className="text-white">
-                        {selectedImageDetail.analysis.detection_time || "N/A"}
-                      </span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-gray-300">Mô hình:</span>
-                      <span className="text-white">
-                        {selectedImageDetail.analysis.model || "Server AI"}
-                      </span>
-                    </div>
                   </div>
                 </div>
               )}
@@ -243,7 +180,7 @@ const ImageDetailModal = ({
               {selectedImageDetail.defenderAnalysis && (
                 <div className="bg-gray-700 rounded-lg p-4 mb-4">
                   <h5 className="font-semibold text-white mb-3">
-                    🥋 Phân Tích Defender
+                    🥋 Phân tích người phòng thủ
                   </h5>
                   <div className="space-y-3">
                     <div className="flex items-center justify-between">
@@ -359,40 +296,208 @@ const ImageDetailModal = ({
                 </div>
               )}
 
-              {/* Basic Info */}
-              <div className="bg-gray-700 rounded-lg p-4 mb-4">
-                <h5 className="font-semibold text-white mb-2">
-                  Thông Tin Cơ Bản
-                </h5>
-                <div className="space-y-2 text-sm">
-                  <div className="flex justify-between">
-                    <span className="text-gray-300">Thời gian:</span>
-                    <span className="text-white">
-                      {new Date(selectedImageDetail.timestamp).toLocaleString()}
-                    </span>
+              {/* Motion Analysis Section */}
+              {selectedImageDetail.motionSequence &&
+                selectedImageDetail.motionSequence.length > 1 && (
+                  <div className="bg-gray-700 rounded-lg p-4 mb-4">
+                    <h5 className="font-semibold text-white mb-3 flex items-center">
+                      <span className="text-xl mr-2">🎯</span>
+                      Phân tích chuyển động
+                      {isAnalyzingMotion && (
+                        <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-500 ml-2"></div>
+                      )}
+                    </h5>
+
+                    {isAnalyzingMotion ? (
+                      <div className="text-center py-4">
+                        <p className="text-gray-300 text-sm">
+                          Đang phân tích chuỗi chuyển động...
+                        </p>
+                        <p className="text-gray-400 text-xs mt-1">
+                          {selectedImageDetail.motionSequence.length} khung
+                        </p>
+                      </div>
+                    ) : motionAnalysisError ? (
+                      <div className="text-center py-4">
+                        <p className="text-red-400 text-sm">
+                          Phân tích thất bại: {motionAnalysisError}
+                        </p>
+                      </div>
+                    ) : motionAnalysis ? (
+                      <div className="space-y-3">
+                        {/* Motion Type */}
+                        <div className="flex items-center justify-between">
+                          <span className="text-sm text-gray-300">
+                            Loại chuyển động:
+                          </span>
+                          <span className="text-sm text-white font-medium capitalize">
+                            {motionAnalysis.motionType === "punching"
+                              ? "Đấm"
+                              : motionAnalysis.motionType === "kicking"
+                              ? "Đá"
+                              : motionAnalysis.motionType === "blocking"
+                              ? "Chặn"
+                              : motionAnalysis.motionType === "stance"
+                              ? "Tư thế"
+                              : motionAnalysis.motionType === "walking"
+                              ? "Đi bộ"
+                              : motionAnalysis.motionType === "static_pose"
+                              ? "Tư thế tĩnh"
+                              : motionAnalysis.motionType === "general_movement"
+                              ? "Chuyển động chung"
+                              : "Không xác định"}
+                          </span>
+                        </div>
+
+                        {/* Confidence */}
+                        <div className="flex items-center justify-between">
+                          <span className="text-sm text-gray-300">
+                            Độ tin cậy:
+                          </span>
+                          <span className="text-sm text-blue-400 font-medium">
+                            {Math.round(motionAnalysis.confidence * 100)}%
+                          </span>
+                        </div>
+
+                        {/* Motion Characteristics */}
+                        {motionAnalysis.patterns && (
+                          <>
+                            <div className="flex items-center justify-between">
+                              <span className="text-sm text-gray-300">
+                                Cường độ:
+                              </span>
+                              <span
+                                className={`text-sm font-medium capitalize ${
+                                  motionAnalysis.patterns.intensity === "high"
+                                    ? "text-red-400"
+                                    : motionAnalysis.patterns.intensity ===
+                                      "medium"
+                                    ? "text-yellow-400"
+                                    : "text-green-400"
+                                }`}
+                              >
+                                {motionAnalysis.patterns.intensity === "high"
+                                  ? "Cao"
+                                  : motionAnalysis.patterns.intensity ===
+                                    "medium"
+                                  ? "Trung bình"
+                                  : "Thấp"}
+                              </span>
+                            </div>
+
+                            <div className="flex items-center justify-between">
+                              <span className="text-sm text-gray-300">
+                                Ổn định:
+                              </span>
+                              <span
+                                className={`text-sm font-medium capitalize ${
+                                  motionAnalysis.patterns.stability === "stable"
+                                    ? "text-green-400"
+                                    : motionAnalysis.patterns.stability ===
+                                      "moderately_stable"
+                                    ? "text-yellow-400"
+                                    : "text-red-400"
+                                }`}
+                              >
+                                {motionAnalysis.patterns.stability === "stable"
+                                  ? "Ổn định"
+                                  : motionAnalysis.patterns.stability ===
+                                    "moderately_stable"
+                                  ? "Khá ổn định"
+                                  : "Không ổn định"}
+                              </span>
+                            </div>
+
+                            <div className="flex items-center justify-between">
+                              <span className="text-sm text-gray-300">
+                                Đối xứng:
+                              </span>
+                              <span
+                                className={`text-sm font-medium capitalize ${
+                                  motionAnalysis.patterns.symmetry ===
+                                  "symmetric"
+                                    ? "text-green-400"
+                                    : motionAnalysis.patterns.symmetry ===
+                                      "moderately_symmetric"
+                                    ? "text-yellow-400"
+                                    : "text-red-400"
+                                }`}
+                              >
+                                {motionAnalysis.patterns.symmetry ===
+                                "symmetric"
+                                  ? "Đối xứng"
+                                  : motionAnalysis.patterns.symmetry ===
+                                    "moderately_symmetric"
+                                  ? "Khá đối xứng"
+                                  : "Không đối xứng"}
+                              </span>
+                            </div>
+                          </>
+                        )}
+
+                        {/* Motion Metrics */}
+                        {motionAnalysis.patterns?.motionMetrics && (
+                          <>
+                            <div className="flex items-center justify-between">
+                              <span className="text-sm text-gray-300">
+                                Vận tốc đỉnh:
+                              </span>
+                              <span className="text-sm text-white">
+                                {motionAnalysis.patterns.motionMetrics.peakVelocity.toFixed(
+                                  1
+                                )}{" "}
+                                px/s
+                              </span>
+                            </div>
+
+                            <div className="flex items-center justify-between">
+                              <span className="text-sm text-gray-300">
+                                Cường độ chuyển động:
+                              </span>
+                              <span className="text-sm text-white">
+                                {motionAnalysis.patterns.motionMetrics.averageMotionMagnitude.toFixed(
+                                  1
+                                )}{" "}
+                                px/khung
+                              </span>
+                            </div>
+                          </>
+                        )}
+
+                        {/* Recommendations */}
+                        {motionAnalysis.recommendations &&
+                          motionAnalysis.recommendations.length > 0 && (
+                            <div className="mt-3 pt-3 border-t border-gray-600">
+                              <div className="text-sm text-white font-medium mb-2">
+                                Khuyến nghị:
+                              </div>
+                              <ul className="space-y-1">
+                                {motionAnalysis.recommendations
+                                  .slice(0, 2)
+                                  .map((recommendation, index) => (
+                                    <li
+                                      key={index}
+                                      className="text-xs text-gray-300 flex items-start"
+                                    >
+                                      <span className="text-blue-400 mt-1 mr-1">
+                                        •
+                                      </span>
+                                      <span>{recommendation}</span>
+                                    </li>
+                                  ))}
+                              </ul>
+                            </div>
+                          )}
+                      </div>
+                    ) : (
+                      <div className="text-center py-4">
+                        <p className="text-gray-400 text-sm">
+                          Không có phân tích chuyển động
+                        </p>
+                      </div>
+                    )}
                   </div>
-                  <div className="flex justify-between">
-                    <span className="text-gray-300">Nguồn:</span>
-                    <span className="text-white">
-                      {selectedImageDetail.source === "upload"
-                        ? "📁 Tải lên"
-                        : "📸 Camera"}
-                    </span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-gray-300">Số tư thế:</span>
-                    <span className="text-white">
-                      {selectedImageDetail.poses?.length || 0}
-                    </span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-gray-300">Phiên:</span>
-                    <span className="text-white">
-                      {selectedImageDetail.sessionId ? "✅" : "❌"}
-                    </span>
-                  </div>
-                </div>
-              </div>
+                )}
             </div>
           </div>
         </div>
