@@ -40,6 +40,7 @@ export default function PoseCapture() {
   // Real-time pose data from WebSocket
   const [currentPoses, setCurrentPoses] = useState([]);
   const currentPosesRef = useRef([]);
+  const defenderTrackIdRef = useRef(null);
 
   // Key frame extraction states
   const [extractedKeyFrames, setExtractedKeyFrames] = useState([]);
@@ -111,7 +112,7 @@ export default function PoseCapture() {
           posesToDraw,
           tempCanvas.width,
           tempCanvas.height,
-          defenderTrackId
+          defenderTrackIdRef.current
         );
 
         // Draw skeleton with role colors
@@ -121,7 +122,7 @@ export default function PoseCapture() {
           tempCanvas.width,
           tempCanvas.height,
           false,
-          defenderTrackId
+          defenderTrackIdRef.current
         );
       }
 
@@ -478,12 +479,14 @@ export default function PoseCapture() {
     setError(null);
     setSelectedTrainingType("");
     setDefenderTrackId(null);
+    defenderTrackIdRef.current = null;
     setShowDefenderSelection(false);
   };
 
   // Handle defender selection
   const handleDefenderSelection = (trackId) => {
     setDefenderTrackId(trackId);
+    defenderTrackIdRef.current = trackId;
     setShowDefenderSelection(false);
   };
 
@@ -632,7 +635,7 @@ export default function PoseCapture() {
           posesToDraw,
           canvas.width,
           canvas.height,
-          defenderTrackId
+          defenderTrackIdRef.current
         );
 
         // Draw skeleton with role colors
@@ -642,7 +645,7 @@ export default function PoseCapture() {
           canvas.width,
           canvas.height,
           false,
-          defenderTrackId
+          defenderTrackIdRef.current
         );
       }
 
