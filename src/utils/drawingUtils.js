@@ -10,8 +10,8 @@ export const drawPoseSkeleton = (
   if (!poses || poses.length === 0) return;
 
   // Adjust line width and keypoint size based on view type
-  const lineWidth = isDetailView ? 4 : 2;
-  const keypointRadius = isDetailView ? 6 : 4;
+  const lineWidth = isDetailView ? 4 : 4;
+  const keypointRadius = isDetailView ? 6 : 6;
   const labelFontSize = isDetailView ? "bold 20px Arial" : "bold 14px Arial";
 
   poses.forEach((pose, index) => {
@@ -148,12 +148,12 @@ export const drawBoundingBoxes = (ctx, poses, canvasWidth, canvasHeight, defende
     // Handle both API format (bbox array) and old format (bbox object)
     let bbox;
     if (Array.isArray(pose.bbox)) {
-      // API format: [x, y, width, height]
+      // API format: [x0, y0, x1, y1] - top-left and bottom-right coordinates
       bbox = {
         x: pose.bbox[0],
         y: pose.bbox[1],
-        width: pose.bbox[2],
-        height: pose.bbox[3]
+        width: pose.bbox[2] - pose.bbox[0],  // x1 - x0
+        height: pose.bbox[3] - pose.bbox[1]  // y1 - y0
       };
     } else if (pose.bbox && typeof pose.bbox === 'object') {
       // Old format: {x, y, width, height}

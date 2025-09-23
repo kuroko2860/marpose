@@ -1,5 +1,5 @@
 import React from "react";
-import { trainingTypes } from "./const";
+import { trainingTypes } from "../config/const";
 
 const TrainingTypeModal = ({ isOpen, onClose, onSelectTrainingType }) => {
   if (!isOpen) return null;

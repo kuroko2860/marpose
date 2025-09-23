@@ -1,6 +1,5 @@
 import { io } from "socket.io-client";
 import API_CONFIG, { getApiUrl, getWsUrl } from "../config/api.js";
-import { convertToBinaryData } from "../utils/imageUtils.js";
 
 class PoseApiService {
   constructor() {
@@ -88,6 +87,7 @@ class PoseApiService {
       return false;
     }
   }
+
 
   // Analyze single image via REST API
   async analyzeImage(imageData) {

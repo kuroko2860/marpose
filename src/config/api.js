@@ -1,5 +1,5 @@
 // API Configuration
-const URL = "103.78.3.32";
+const URL = "103.78.3.29";
 export const API_CONFIG = {
   // Base URL for the Python pose estimation API
   BASE_URL: `https://${URL}`,

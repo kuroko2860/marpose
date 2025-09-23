@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
-import { trainingTypes, analyzePose, classifyAction } from "./const";
+import { trainingTypes, analyzePose, classifyAction } from "../config/const";
 import PoseApiService from "../services/poseApi";
 import { convertToBinaryData } from "../utils/imageUtils";
 import ConnectionStatus from "./ConnectionStatus";
@@ -9,7 +9,8 @@ import CapturedImages from "./CapturedImages";
 import TrainingTypeModal from "./TrainingTypeModal";
 import ImageDetailModal from "./ImageDetailModal";
 import SessionControls from "./SessionControls";
-import { drawPoseSkeleton, drawBoundingBoxes } from "./drawingUtils";
+import KeyFrameExtractor from "./KeyFrameExtractor";
+import { drawPoseSkeleton, drawBoundingBoxes } from "../utils/drawingUtils";
 
 export default function PoseCapture() {
   const videoRef = useRef(null);
@@ -42,6 +43,10 @@ export default function PoseCapture() {
   const [currentPoses, setCurrentPoses] = useState([]);
   const currentPosesRef = useRef([]);
 
+  // Key frame extraction states
+  const [extractedKeyFrames, setExtractedKeyFrames] = useState([]);
+  const [sessionAnalysis, setSessionAnalysis] = useState(null);
+
   // Initialize API service connection
   const initializeApiService = async () => {
     try {
@@ -67,7 +72,82 @@ export default function PoseCapture() {
     }
   };
 
-  // Handle pose analysis results from WebSocket
+  // Capture raw video frame without pose overlays
+  const captureRawVideoFrame = () => {
+    if (!videoRef.current) {
+      return null;
+    }
+
+    try {
+      // Create a temporary canvas for raw video capture
+      const tempCanvas = document.createElement("canvas");
+      const tempCtx = tempCanvas.getContext("2d");
+
+      if (!tempCtx) {
+        return null;
+      }
+
+      // Set canvas dimensions to match video
+      tempCanvas.width = videoRef.current.videoWidth;
+      tempCanvas.height = videoRef.current.videoHeight;
+
+      // Draw only the video frame (no pose overlays)
+      tempCtx.drawImage(
+        videoRef.current,
+        0,
+        0,
+        tempCanvas.width,
+        tempCanvas.height
+      );
+
+      // Convert to data URL
+      const imageData = tempCanvas.toDataURL("image/jpeg", 0.8);
+
+      return imageData;
+    } catch (error) {
+      return null;
+    }
+  };
+
+  // Handle key frame capture
+  const handleKeyFrameCaptured = (keyFrame) => {
+    setExtractedKeyFrames((prev) => [...prev.slice(-9), keyFrame]); // Keep last 10
+
+    // Capture raw video frame (without pose overlays)
+    const imageData = captureRawVideoFrame();
+
+    // Add to captured images for display
+    const capturedImage = {
+      id: keyFrame.id,
+      image: imageData,
+      timestamp: new Date(keyFrame.timestamp).toISOString(),
+      poses: [keyFrame.pose],
+      analysis: {
+        total_poses: 1,
+        confidence: keyFrame.stabilityScore,
+        detection_time: "Real-time",
+        model: "Stability Detection",
+        detection_method: "Key Frame Extraction",
+        stabilityScore: keyFrame.stabilityScore,
+        frameType: keyFrame.type,
+      },
+      defenderAnalysis: null,
+      sessionId: currentSession?.id,
+      source: "keyframe",
+      isProcessing: false,
+      isKeyFrame: true,
+      keyFrameType: keyFrame.type,
+    };
+
+    setCapturedImages((prev) => [...prev, capturedImage]);
+  };
+
+  // Handle session analysis completion
+  const handleSessionAnalysisComplete = (analysis) => {
+    setSessionAnalysis(analysis);
+    console.log("Training session analysis:", analysis);
+  };
+
   const handlePoseResult = (data) => {
     if (data && data.success) {
       // Transform API data format to frontend format
@@ -200,7 +280,7 @@ export default function PoseCapture() {
           console.error("Error streaming frame:", error);
         }
       }
-    }, 100); // Send 10 frames per second
+    }, 200); // Send 10 frames per second
 
     setStreamingInterval(interval);
     setIsStreaming(true);
@@ -246,9 +326,14 @@ export default function PoseCapture() {
       setIsCapturing(true);
       setError(null);
 
-      // Capture image from canvas
-      const canvas = canvasRef.current;
-      const imageData = canvas.toDataURL("image/jpeg", 0.8);
+      // Capture raw video frame (without pose overlays)
+      const imageData = captureRawVideoFrame();
+
+      if (!imageData) {
+        setError("Không thể chụp ảnh từ video. Vui lòng thử lại.");
+        setIsCapturing(false);
+        return;
+      }
 
       // Create capture object
       const newCapture = {
@@ -844,6 +929,14 @@ export default function PoseCapture() {
         onSelectDefender={selectDefender}
         onDrawPoseSkeleton={drawPoseSkeleton}
         onDrawBoundingBoxes={drawBoundingBoxes}
+      />
+
+      {/* Key Frame Extractor */}
+      <KeyFrameExtractor
+        currentPoses={currentPoses}
+        isTrainingSession={!!currentSession}
+        onKeyFrameCaptured={handleKeyFrameCaptured}
+        onAnalysisComplete={handleSessionAnalysisComplete}
       />
     </div>
   );

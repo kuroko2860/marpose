@@ -58,12 +58,12 @@ export const trainingTypes = [
   },
   {
     id: "3",
-    name: "Dao đâm xốc",
+    name: "Giật tay đá móc 1",
     description: "Defense against knife thrust"
   },
   {
     id: "4",
-    name: "Dao vát thuận",
+    name: "Giật tay đá móc 2",
     description: "Defense against knife slash"
   },
 ];

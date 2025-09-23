@@ -28,7 +28,11 @@ const CapturedImages = ({ capturedImages, onImageClick }) => {
           {capturedImages.map((capture) => (
             <div
               key={capture.id}
-              className="bg-gray-700 rounded-lg p-4 border border-gray-600 hover:border-blue-500 transition-colors cursor-pointer"
+              className={`rounded-lg p-4 border transition-colors cursor-pointer ${
+                capture.isKeyFrame
+                  ? "bg-green-700/30 border-green-500/50 hover:border-green-400"
+                  : "bg-gray-700 border-gray-600 hover:border-blue-500"
+              }`}
               onClick={() => onImageClick(capture)}
             >
               <div className="flex space-x-4">
@@ -38,20 +42,47 @@ const CapturedImages = ({ capturedImages, onImageClick }) => {
                   className="w-24 h-24 object-cover rounded-lg"
                 />
                 <div className="flex-1">
-                  <div className="text-sm text-gray-300 mb-2">
-                    {new Date(capture.timestamp).toLocaleTimeString()}
+                  <div className="flex items-center space-x-2 mb-2">
+                    <span className="text-sm text-gray-300">
+                      {new Date(capture.timestamp).toLocaleTimeString()}
+                    </span>
+                    {capture.isKeyFrame && (
+                      <span className="bg-green-500/20 text-green-400 px-2 py-1 rounded-full text-xs font-medium">
+                        🎯 Key Frame
+                      </span>
+                    )}
                   </div>
                   <div className="text-sm text-blue-400 mb-1">
                     Tư thế phát hiện: {capture.poses?.length || 0}
                   </div>
                   {capture.analysis && (
                     <div className="text-xs text-gray-400 mb-1">
-                      Độ tin cậy:{" "}
-                      {Math.round((capture.analysis.confidence || 0) * 100)}%
+                      {capture.isKeyFrame ? (
+                        <>
+                          Stability:{" "}
+                          {Math.round(
+                            (capture.analysis.stabilityScore || 0) * 100
+                          )}
+                          % | Type:{" "}
+                          {capture.keyFrameType === "action_completion"
+                            ? "Action End"
+                            : "Stable Pose"}
+                        </>
+                      ) : (
+                        <>
+                          Độ tin cậy:{" "}
+                          {Math.round((capture.analysis.confidence || 0) * 100)}
+                          %
+                        </>
+                      )}
                     </div>
                   )}
                   <div className="text-xs text-purple-400 mb-1">
-                    {capture.source === "upload" ? "📁 Tải lên" : "📸 Camera"}
+                    {capture.source === "upload"
+                      ? "📁 Tải lên"
+                      : capture.source === "keyframe"
+                      ? "🎯 Key Frame"
+                      : "📸 Camera"}
                     {capture.isProcessing && " - 🔄 Đang xử lý..."}
                     {capture.error && " - ❌ Lỗi"}
                   </div>
