@@ -48,12 +48,12 @@ export const KEYPOINT_NAMES = [
 export const trainingTypes = [
   {
     id: "1",
-    name: "Giật tay đá móc 1",
+    name: "Giật tay đá móc",
     description: "Defense pose with arms crossed"
   },
   {
     id: "2", 
-    name: "Giật tay đá móc 2",
+    name: "Giật chân húc vai đẩy ngã sấp",
     description: "Defense pose holding opponent's leg"
   },
 ];

@@ -68,7 +68,7 @@ const WebcamControls = ({
         )}
 
         {/* Upload Image Button */}
-        <div className="relative">
+        {/* <div className="relative">
           <input
             type="file"
             accept="image/*"
@@ -97,7 +97,7 @@ const WebcamControls = ({
               </>
             )}
           </label>
-        </div>
+        </div> */}
       </div>
     </div>
   );

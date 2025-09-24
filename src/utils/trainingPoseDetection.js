@@ -137,14 +137,14 @@ export const detectArmCrossing = (defenderPose, attackerPose = null) => {
     // Kiểm tra xem cổ tay người phòng thủ có gần cổ tay kẻ tấn công không (tay nắm cổ tay đối thủ)
     const leftWristToAttackerWrist = calculateRelativeDistance(defenderPose, attackerPose, 9, 9); // Cổ tay trái người phòng thủ đến cổ tay trái kẻ tấn công
     const rightWristToAttackerWrist = calculateRelativeDistance(defenderPose, attackerPose, 10, 10); // Cổ tay phải người phòng thủ đến cổ tay phải kẻ tấn công
-    const isHoldingAttackerWrist = (leftWristToAttackerWrist && leftWristToAttackerWrist < 100) || 
-                                   (rightWristToAttackerWrist && rightWristToAttackerWrist < 100); // Trong vòng 80 pixel
+    const isHoldingAttackerWrist = (leftWristToAttackerWrist && leftWristToAttackerWrist < 70) || 
+                                   (rightWristToAttackerWrist && rightWristToAttackerWrist < 70); // Trong vòng 80 pixel
     
     // Kiểm tra xem mắt cá chân người phòng thủ có gần mắt cá chân kẻ tấn công không (chân đè lên chân đối thủ)
     const leftAnkleToAttackerAnkle = calculateRelativeDistance(defenderPose, attackerPose, 15, 16); // Mắt cá chân trái người phòng thủ đến mắt cá chân trái kẻ tấn công
     const rightAnkleToAttackerAnkle = calculateRelativeDistance(defenderPose, attackerPose, 16, 15); // Mắt cá chân phải người phòng thủ đến mắt cá chân phải kẻ tấn công
-    const isLegOnAttackerLeg = (leftAnkleToAttackerAnkle && leftAnkleToAttackerAnkle < 150) || 
-                               (rightAnkleToAttackerAnkle && rightAnkleToAttackerAnkle < 150); // Trong vòng 100 pixel
+    const isLegOnAttackerLeg = (leftAnkleToAttackerAnkle && leftAnkleToAttackerAnkle < 70) || 
+                               (rightAnkleToAttackerAnkle && rightAnkleToAttackerAnkle < 70); // Trong vòng 100 pixel
     
     // Kiểm tra xem tay còn lại của người phòng thủ có cắt ở khuỷu tay kẻ tấn công không
     const leftWristToAttackerElbow = calculateRelativeDistance(defenderPose, attackerPose, 10, 7); // Cổ tay trái người phòng thủ đến khuỷu tay trái kẻ tấn công
@@ -230,113 +230,70 @@ export const detectHoldingLeg = (defenderPose, attackerPose = null) => {
     return null;
   }
   
-  // Tính toán các chỉ số cơ bản
-  const leftElbowAngle = calculateAngle(leftShoulder, leftElbow, leftWrist);
-  const rightElbowAngle = calculateAngle(rightShoulder, rightElbow, rightWrist);
-  
-  // Kiểm tra xem tay có được định vị ở mức chân không (giữa hông và đầu gối)
-  const leftWristHeight = leftWrist[1];
-  const rightWristHeight = rightWrist[1];
-  const leftHipHeight = leftHip[1];
-  const rightHipHeight = rightHip[1];
-  const leftKneeHeight = leftKnee[1];
-  const rightKneeHeight = rightKnee[1];
-  
-  const leftHandAtLegLevel = leftWristHeight > leftHipHeight && leftWristHeight < leftKneeHeight;
-  const rightHandAtLegLevel = rightWristHeight > rightHipHeight && rightWristHeight < rightKneeHeight;
-  const handsAtLegLevel = leftHandAtLegLevel && rightHandAtLegLevel;
-  
-  // Kiểm tra xem khuỷu tay có cong để nắm đúng không (cả hai tay nên cong)
-  const leftElbowBent = leftElbowAngle > 80 && leftElbowAngle < 140;
-  const rightElbowBent = rightElbowAngle > 80 && rightElbowAngle < 140;
-  const elbowsBent = leftElbowBent && rightElbowBent;
-  
-  // Kiểm tra xem tay có gần nhau không (nắm cùng một chân)
-  const handDistance = calculateDistance(leftWrist, rightWrist);
-  const shoulderDistance = calculateDistance(leftShoulder, rightShoulder);
-  const normalizedHandDistance = handDistance / shoulderDistance;
-  const handsCloseTogether = normalizedHandDistance < 0.4; // Tay nên gần nhau
-  
-  // Kiểm tra xem tay có được định vị về phía trước không (duỗi từ cơ thể)
-  const leftWristForward = leftWrist[0] > leftHip[0] - 30; // Cổ tay nên ở phía trước hông
-  const rightWristForward = rightWrist[0] < rightHip[0] + 30; // Cổ tay nên ở phía trước hông
-  const handsForward = leftWristForward && rightWristForward;
-  
-  // Tính toán độ tin cậy
+  // Tính toán độ tin cậy cơ bản
   let confidence = 0;
-  if (handsAtLegLevel) confidence += 0.3;
-  if (elbowsBent) confidence += 0.3;
-  if (handsCloseTogether) confidence += 0.2;
-  if (handsForward) confidence += 0.2;
   
   // Phân tích tương đối với kẻ tấn công nếu có
   let relativeMetrics = {};
   let relativeFeedback = {};
   
   if (attackerPose) {
-    // Tính toán khoảng cách tương đối đến chân kẻ tấn công
-    const leftWristToAttackerKnee = calculateRelativeDistance(defenderPose, attackerPose, 9, 13); // Cổ tay trái người phòng thủ đến đầu gối trái kẻ tấn công
-    const rightWristToAttackerKnee = calculateRelativeDistance(defenderPose, attackerPose, 10, 14); // Cổ tay phải người phòng thủ đến đầu gối phải kẻ tấn công
+    // Tính toán khoảng cách mắt cá chân người phòng thủ đến mắt cá chân kẻ tấn công
+    const leftAnkleToAttackerAnkle = calculateRelativeDistance(defenderPose, attackerPose, 15, 15); // Mắt cá chân trái người phòng thủ đến mắt cá chân trái kẻ tấn công
+    const rightAnkleToAttackerAnkle = calculateRelativeDistance(defenderPose, attackerPose, 16, 16); // Mắt cá chân phải người phòng thủ đến mắt cá chân phải kẻ tấn công
+    
+    // Kiểm tra xem khoảng cách mắt cá chân có trong phạm vi 100-150px không
+    const ankleDistanceInRange = (leftAnkleToAttackerAnkle && leftAnkleToAttackerAnkle >= 100 && leftAnkleToAttackerAnkle <= 150) ||
+                                 (rightAnkleToAttackerAnkle && rightAnkleToAttackerAnkle >= 100 && rightAnkleToAttackerAnkle <= 150);
+    
+    // Tính toán khoảng cách cổ tay người phòng thủ đến mắt cá chân kẻ tấn công
     const leftWristToAttackerAnkle = calculateRelativeDistance(defenderPose, attackerPose, 9, 15); // Cổ tay trái người phòng thủ đến mắt cá chân trái kẻ tấn công
     const rightWristToAttackerAnkle = calculateRelativeDistance(defenderPose, attackerPose, 10, 16); // Cổ tay phải người phòng thủ đến mắt cá chân phải kẻ tấn công
     
-    // Kiểm tra xem người phòng thủ có nắm chân kẻ tấn công không
-    const isGrippingAttackerLeftLeg = leftWristToAttackerKnee && leftWristToAttackerKnee < 80; // Trong vòng 80 pixel
-    const isGrippingAttackerRightLeg = rightWristToAttackerKnee && rightWristToAttackerKnee < 80;
-    const isGrippingAttackerAnkle = (leftWristToAttackerAnkle && leftWristToAttackerAnkle < 100) || 
-                                   (rightWristToAttackerAnkle && rightWristToAttackerAnkle < 100);
+    // Kiểm tra xem cổ tay có gần mắt cá chân kẻ tấn công không (trong vòng 80px)
+    const isWristCloseToAttackerAnkle = (leftWristToAttackerAnkle && leftWristToAttackerAnkle < 80) ||
+                                        (rightWristToAttackerAnkle && rightWristToAttackerAnkle < 80);
     
-    // Kiểm tra xem người phòng thủ có được định vị đúng so với kẻ tấn công không
-    const defenderFacingAttacker = isDefenderFacingAttacker(defenderPose, attackerPose);
-    const defenderToAttackerDistance = calculateRelativeDistance(defenderPose, attackerPose, 11, 11); // Khoảng cách hông đến hông
+    // Kiểm tra xem cổ tay có ở trên mắt cá chân kẻ tấn công không
+    const leftWristAboveAttackerAnkle = leftWrist[1] < attackerPose.keypoints_2d[15][1]; // Cổ tay trái cao hơn mắt cá chân trái kẻ tấn công
+    const rightWristAboveAttackerAnkle = rightWrist[1] < attackerPose.keypoints_2d[16][1]; // Cổ tay phải cao hơn mắt cá chân phải kẻ tấn công
+    const isWristAboveAttackerAnkle = leftWristAboveAttackerAnkle || rightWristAboveAttackerAnkle;
     
     relativeMetrics = {
-      leftWristToAttackerKnee,
-      rightWristToAttackerKnee,
+      leftAnkleToAttackerAnkle,
+      rightAnkleToAttackerAnkle,
+      ankleDistanceInRange,
       leftWristToAttackerAnkle,
       rightWristToAttackerAnkle,
-      isGrippingAttackerLeftLeg,
-      isGrippingAttackerRightLeg,
-      isGrippingAttackerAnkle,
-      defenderFacingAttacker,
-      defenderToAttackerDistance
+      isWristCloseToAttackerAnkle,
+      leftWristAboveAttackerAnkle,
+      rightWristAboveAttackerAnkle,
+      isWristAboveAttackerAnkle
     };
     
-    // Thêm độ tin cậy tương đối
-    if (defenderFacingAttacker) confidence += 0.1;
-    if (isGrippingAttackerLeftLeg || isGrippingAttackerRightLeg) confidence += 0.1;
-    if (isGrippingAttackerAnkle) confidence += 0.1;
+    // Tính toán độ tin cậy dựa trên tương đối với kẻ tấn công
+    if (ankleDistanceInRange) confidence += 0.4;
+    if (isWristCloseToAttackerAnkle) confidence += 0.4;
+    if (isWristAboveAttackerAnkle) confidence += 0.2;
     
     relativeFeedback = {
-      defenderFacingAttacker: defenderFacingAttacker ? "✅ Đối mặt với đối thủ đúng" : "❌ Cần đối mặt với đối thủ",
-      isGrippingAttackerLeftLeg: isGrippingAttackerLeftLeg ? "✅ Nắm chân trái đối thủ đúng" : "❌ Cần nắm chân trái đối thủ gần hơn",
-      isGrippingAttackerRightLeg: isGrippingAttackerRightLeg ? "✅ Nắm chân phải đối thủ đúng" : "❌ Cần nắm chân phải đối thủ gần hơn",
-      isGrippingAttackerAnkle: isGrippingAttackerAnkle ? "✅ Nắm cổ chân đối thủ đúng" : "❌ Cần nắm cổ chân đối thủ gần hơn"
+      ankleDistanceInRange: ankleDistanceInRange ? "✅ Khoảng cách chân đúng (100-150px)" : "❌ Cần điều chỉnh khoảng cách chân (100-150px)",
+      isWristCloseToAttackerAnkle: isWristCloseToAttackerAnkle ? "✅ Tay gần mắt cá chân đối thủ đúng" : "❌ Cần đưa tay gần mắt cá chân đối thủ hơn",
+      isWristAboveAttackerAnkle: isWristAboveAttackerAnkle ? "✅ Tay ở trên mắt cá chân đối thủ đúng" : "❌ Cần đưa tay lên trên mắt cá chân đối thủ"
     };
   }
   
-  // Kiểm tra xem tư thế có đúng không
-  const isCorrect = handsAtLegLevel && elbowsBent && handsCloseTogether && confidence > 0.7;
+  // Kiểm tra xem tư thế có đúng không (chỉ dựa trên tương đối với kẻ tấn công)
+  const isCorrect = confidence > 0.7;
   
   return {
     type: 'holding_leg',
     confidence: Math.min(confidence, 1.0),
     isCorrect: isCorrect,
     metrics: {
-      leftElbowAngle: leftElbowAngle,
-      rightElbowAngle: rightElbowAngle,
-      handsAtLegLevel: handsAtLegLevel,
-      elbowsBent: elbowsBent,
-      handsCloseTogether: handsCloseTogether,
-      handsForward: handsForward,
-      normalizedHandDistance: normalizedHandDistance,
       ...relativeMetrics
     },
     feedback: {
-      handsAtLegLevel: handsAtLegLevel ? "✅ Tay ở vị trí chân đúng" : "❌ Tay cần hạ xuống vị trí chân",
-      elbowsBent: elbowsBent ? "✅ Khuỷu tay cong đúng để nắm chân" : "❌ Khuỷu tay cần cong hơn",
-      handsCloseTogether: handsCloseTogether ? "✅ Hai tay nắm chân gần nhau đúng" : "❌ Hai tay cần nắm chân gần nhau hơn",
-      handsForward: handsForward ? "✅ Tay duỗi ra trước đúng" : "❌ Tay cần duỗi ra trước hơn",
       overall: isCorrect ? "✅ Tư thế giữ chân đúng" : "❌ Cần điều chỉnh tư thế",
       ...relativeFeedback
     }
