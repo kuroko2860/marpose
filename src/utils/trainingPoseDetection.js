@@ -378,22 +378,22 @@ export const detectHoldingLeg = (defenderPose, attackerPose = null) => {
     
     // Tính điểm cho cổ tay trái
     if (leftWristToAttackerAnkle) {
-      if (leftWristToAttackerAnkle <= 80) {
+      if (leftWristToAttackerAnkle <= 40) {
         leftWristScore = 1.0; // Điểm đầy đủ trong phạm vi mục tiêu
       } else {
         // Tính điểm giảm dần khi xa khỏi phạm vi mục tiêu
         const maxDistance = 200; // Khoảng cách tối đa để có điểm
-        leftWristScore = Math.max(0, 1.0 - ((leftWristToAttackerAnkle - 80) / maxDistance));
+        leftWristScore = Math.max(0, 1.0 - ((leftWristToAttackerAnkle - 40) / maxDistance));
       }
     }
     
     // Tính điểm cho cổ tay phải
     if (rightWristToAttackerAnkle) {
-      if (rightWristToAttackerAnkle <= 80) {
+      if (rightWristToAttackerAnkle <= 40) {
         rightWristScore = 1.0; // Điểm đầy đủ trong phạm vi mục tiêu
       } else {
         const maxDistance = 200;
-        rightWristScore = Math.max(0, 1.0 - ((rightWristToAttackerAnkle - 80) / maxDistance));
+        rightWristScore = Math.max(0, 1.0 - ((rightWristToAttackerAnkle - 40) / maxDistance));
       }
     }
     
