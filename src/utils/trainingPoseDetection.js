@@ -110,21 +110,8 @@ export const detectArmCrossing = (defenderPose, attackerPose = null) => {
       !leftShoulder || !rightShoulder) {
     return null;
   }
-  
-  // Tính toán các chỉ số cơ bản
-  const leftElbowAngle = calculateAngle(leftShoulder, leftElbow, leftWrist);
-  const rightElbowAngle = calculateAngle(rightShoulder, rightElbow, rightWrist);
-  
-  // Kiểm tra xem cổ tay phải có cao hơn vai phải không (vị trí chặn)
-  const rightWristRaised = rightWrist[1] < rightShoulder[1];
-  
-  // Kiểm tra xem cổ tay trái có ở độ cao phù hợp không (vị trí nắm)
-  const leftWristAtGripHeight = leftWrist[1] > leftShoulder[1] && leftWrist[1] < leftElbow[1];
-  
   // Tính toán độ tin cậy
   let confidence = 0;
-  if (rightWristRaised) confidence += 0.2;
-  if (leftWristAtGripHeight) confidence += 0.2;
   
   // Phân tích tương đối với kẻ tấn công nếu có
   let relativeMetrics = {};
@@ -278,17 +265,15 @@ export const detectArmCrossing = (defenderPose, attackerPose = null) => {
   }
   
   // Kiểm tra xem tư thế có đúng không
-  const isCorrect = rightWristRaised && confidence > 0.7;
+  const isCorrect = confidence > 0.7;
   
   return {
     type: 'arm_crossing',
     confidence: Math.min(confidence, 1.0),
     isCorrect: isCorrect,
     metrics: {
-      leftElbowAngle: leftElbowAngle,
-      rightElbowAngle: rightElbowAngle,
-      rightWristRaised: rightWristRaised,
-      leftWristAtGripHeight: leftWristAtGripHeight,
+      // leftElbowAngle: leftElbowAngle,
+      // rightElbowAngle: rightElbowAngle,
       ...relativeMetrics
     },
     feedback: {
