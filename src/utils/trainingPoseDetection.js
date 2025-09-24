@@ -264,13 +264,13 @@ export const detectArmCrossing = (defenderPose, attackerPose = null) => {
     confidence += elbowCuttingScore * 0.4; // 40% trọng số cho cắt khuỷu tay
     
     relativeFeedback = {
-      wristToWristScore: `Nắm cổ tay: ${(wristToWristScore * 100).toFixed(0)}% (mục tiêu: 0-70px)`,
-      leftWristScore: `Cổ tay trái: ${(leftWristScore * 100).toFixed(0)}% (mục tiêu: 0-70px)`,
-      rightWristScore: `Cổ tay phải: ${(rightWristScore * 100).toFixed(0)}% (mục tiêu: 0-70px)`,
-      ankleDistanceScore: `Đè chân: ${(ankleDistanceScore * 100).toFixed(0)}% (mục tiêu: 0-70px)`,
-      elbowCuttingScore: `Cắt khuỷu tay: ${(elbowCuttingScore * 100).toFixed(0)}% (mục tiêu: 0-100px)`,
-      leftElbowScore: `Cổ tay trái cắt: ${(leftElbowScore * 100).toFixed(0)}% (mục tiêu: 0-100px)`,
-      rightElbowScore: `Cổ tay phải cắt: ${(rightElbowScore * 100).toFixed(0)}% (mục tiêu: 0-100px)`,
+      wristToWristScore: `Nắm cổ tay: ${(wristToWristScore * 100).toFixed(0)}%`,
+      leftWristScore: `Cổ tay trái: ${(leftWristScore * 100).toFixed(0)}%`,
+      rightWristScore: `Cổ tay phải: ${(rightWristScore * 100).toFixed(0)}%`,
+      ankleDistanceScore: `Đè chân: ${(ankleDistanceScore * 100).toFixed(0)}%`,
+      elbowCuttingScore: `Cắt khuỷu tay: ${(elbowCuttingScore * 100).toFixed(0)}%`,
+      leftElbowScore: `Cổ tay trái cắt: ${(leftElbowScore * 100).toFixed(0)}%`,
+      rightElbowScore: `Cổ tay phải cắt: ${(rightElbowScore * 100).toFixed(0)}%`,
       isHoldingAttackerWrist: isHoldingAttackerWrist ? "✅ Nắm cổ tay đối thủ đúng" : "❌ Cần nắm cổ tay đối thủ gần hơn",
       isLegOnAttackerLeg: isLegOnAttackerLeg ? "✅ Chân đè lên chân đối thủ đúng" : "❌ Cần đè chân lên chân đối thủ",
       isCuttingAtAttackerElbow: isCuttingAtAttackerElbow ? "✅ Tay cắt ở khuỷu tay đối thủ đúng" : "❌ Cần cắt tay ở khuỷu tay đối thủ"
@@ -434,9 +434,9 @@ export const detectHoldingLeg = (defenderPose, attackerPose = null) => {
     confidence += wristDistanceScore * 0.5; // 50% trọng số cho khoảng cách cổ tay
     
     relativeFeedback = {
-      ankleDistanceScore: `Khoảng cách chân: ${(ankleDistanceScore * 100).toFixed(0)}% (mục tiêu: 100-150px)`,
-      leftWristScore: `Cổ tay trái: ${(leftWristScore * 100).toFixed(0)}% (mục tiêu: 0-80px)`,
-      rightWristScore: `Cổ tay phải: ${(rightWristScore * 100).toFixed(0)}% (mục tiêu: 0-80px)`,
+      ankleDistanceScore: `Khoảng cách chân: ${(ankleDistanceScore * 100).toFixed(0)}%`,
+      leftWristScore: `Cổ tay trái: ${(leftWristScore * 100).toFixed(0)}%`,
+      rightWristScore: `Cổ tay phải: ${(rightWristScore * 100).toFixed(0)}%`,
       wristDistanceScore: `Trung bình tay: ${(wristDistanceScore * 100).toFixed(0)}%`,
       ankleDistanceInRange: ankleDistanceInRange ? "✅ Khoảng cách chân đúng" : "❌ Cần điều chỉnh khoảng cách chân",
       isWristCloseToAttackerAnkle: isWristCloseToAttackerAnkle ? "✅ Tay gần mắt cá chân đối thủ đúng" : "❌ Cần đưa tay gần mắt cá chân đối thủ hơn",
