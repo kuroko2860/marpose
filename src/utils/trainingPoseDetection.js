@@ -134,43 +134,143 @@ export const detectArmCrossing = (defenderPose, attackerPose = null) => {
     // Tính toán khoảng cách và góc tương đối
     const defenderToAttackerDistance = calculateRelativeDistance(defenderPose, attackerPose, 9, 9); // Cổ tay đến cổ tay
     
-    // Kiểm tra xem cổ tay người phòng thủ có gần cổ tay kẻ tấn công không (tay nắm cổ tay đối thủ)
+    // Tính điểm dựa trên khoảng cách cổ tay đến cổ tay kẻ tấn công (0-70px là mục tiêu) - kiểm tra cả hai cổ tay
     const leftWristToAttackerWrist = calculateRelativeDistance(defenderPose, attackerPose, 9, 9); // Cổ tay trái người phòng thủ đến cổ tay trái kẻ tấn công
     const rightWristToAttackerWrist = calculateRelativeDistance(defenderPose, attackerPose, 10, 10); // Cổ tay phải người phòng thủ đến cổ tay phải kẻ tấn công
-    const isHoldingAttackerWrist = (leftWristToAttackerWrist && leftWristToAttackerWrist < 70) || 
-                                   (rightWristToAttackerWrist && rightWristToAttackerWrist < 70); // Trong vòng 80 pixel
     
-    // Kiểm tra xem mắt cá chân người phòng thủ có gần mắt cá chân kẻ tấn công không (chân đè lên chân đối thủ)
+    let wristToWristScore = 0;
+    let leftWristScore = 0;
+    let rightWristScore = 0;
+    
+    // Tính điểm cho cổ tay trái
+    if (leftWristToAttackerWrist) {
+      if (leftWristToAttackerWrist <= 70) {
+        leftWristScore = 1.0; // Điểm đầy đủ trong phạm vi mục tiêu
+      } else {
+        // Tính điểm giảm dần khi xa khỏi phạm vi mục tiêu
+        const maxDistance = 150; // Khoảng cách tối đa để có điểm
+        leftWristScore = Math.max(0, 1.0 - ((leftWristToAttackerWrist - 70) / maxDistance));
+      }
+    }
+    
+    // Tính điểm cho cổ tay phải
+    if (rightWristToAttackerWrist) {
+      if (rightWristToAttackerWrist <= 70) {
+        rightWristScore = 1.0; // Điểm đầy đủ trong phạm vi mục tiêu
+      } else {
+        const maxDistance = 150;
+        rightWristScore = Math.max(0, 1.0 - ((rightWristToAttackerWrist - 70) / maxDistance));
+      }
+    }
+    
+    // Lấy điểm trung bình của cả hai cổ tay
+    if (leftWristScore > 0 && rightWristScore > 0) {
+      wristToWristScore = (leftWristScore + rightWristScore) / 2; // Trung bình của cả hai
+    } else if (leftWristScore > 0) {
+      wristToWristScore = leftWristScore; // Chỉ có cổ tay trái
+    } else if (rightWristScore > 0) {
+      wristToWristScore = rightWristScore; // Chỉ có cổ tay phải
+    }
+    
+    const isHoldingAttackerWrist = wristToWristScore > 0.8; // Coi là nắm nếu điểm > 0.8
+    
+    // Tính điểm dựa trên khoảng cách mắt cá chân (0-70px là mục tiêu) - chỉ kiểm tra một bên
     const leftAnkleToAttackerAnkle = calculateRelativeDistance(defenderPose, attackerPose, 15, 16); // Mắt cá chân trái người phòng thủ đến mắt cá chân trái kẻ tấn công
     const rightAnkleToAttackerAnkle = calculateRelativeDistance(defenderPose, attackerPose, 16, 15); // Mắt cá chân phải người phòng thủ đến mắt cá chân phải kẻ tấn công
-    const isLegOnAttackerLeg = (leftAnkleToAttackerAnkle && leftAnkleToAttackerAnkle < 70) || 
-                               (rightAnkleToAttackerAnkle && rightAnkleToAttackerAnkle < 70); // Trong vòng 100 pixel
     
-    // Kiểm tra xem tay còn lại của người phòng thủ có cắt ở khuỷu tay kẻ tấn công không
+    let ankleDistanceScore = 0;
+    if (leftAnkleToAttackerAnkle) {
+      if (leftAnkleToAttackerAnkle <= 70) {
+        ankleDistanceScore = 1.0; // Điểm đầy đủ trong phạm vi mục tiêu
+      } else {
+        // Tính điểm giảm dần khi xa khỏi phạm vi mục tiêu
+        const maxDistance = 150; // Khoảng cách tối đa để có điểm
+        ankleDistanceScore = Math.max(0, 1.0 - ((leftAnkleToAttackerAnkle - 70) / maxDistance));
+      }
+    } else if (rightAnkleToAttackerAnkle) {
+      if (rightAnkleToAttackerAnkle <= 70) {
+        ankleDistanceScore = 1.0; // Điểm đầy đủ trong phạm vi mục tiêu
+      } else {
+        const maxDistance = 150;
+        ankleDistanceScore = Math.max(0, 1.0 - ((rightAnkleToAttackerAnkle - 70) / maxDistance));
+      }
+    }
+    
+    const isLegOnAttackerLeg = ankleDistanceScore > 0.8; // Coi là đè chân nếu điểm > 0.8
+    
+    // Tính điểm dựa trên khoảng cách cổ tay đến khuỷu tay kẻ tấn công (0-100px là mục tiêu) - kiểm tra cả hai cổ tay
     const leftWristToAttackerElbow = calculateRelativeDistance(defenderPose, attackerPose, 10, 7); // Cổ tay trái người phòng thủ đến khuỷu tay trái kẻ tấn công
     const rightWristToAttackerElbow = calculateRelativeDistance(defenderPose, attackerPose, 9, 8); // Cổ tay phải người phòng thủ đến khuỷu tay phải kẻ tấn công
-    const isCuttingAtAttackerElbow = (leftWristToAttackerElbow && leftWristToAttackerElbow < 100) || 
-                                     (rightWristToAttackerElbow && rightWristToAttackerElbow < 100); // Trong vòng 120 pixel
+    
+    let elbowCuttingScore = 0;
+    let leftElbowScore = 0;
+    let rightElbowScore = 0;
+    
+    // Tính điểm cho cổ tay trái
+    if (leftWristToAttackerElbow) {
+      if (leftWristToAttackerElbow <= 100) {
+        leftElbowScore = 1.0; // Điểm đầy đủ trong phạm vi mục tiêu
+      } else {
+        // Tính điểm giảm dần khi xa khỏi phạm vi mục tiêu
+        const maxDistance = 200; // Khoảng cách tối đa để có điểm
+        leftElbowScore = Math.max(0, 1.0 - ((leftWristToAttackerElbow - 100) / maxDistance));
+      }
+    }
+    
+    // Tính điểm cho cổ tay phải
+    if (rightWristToAttackerElbow) {
+      if (rightWristToAttackerElbow <= 100) {
+        rightElbowScore = 1.0; // Điểm đầy đủ trong phạm vi mục tiêu
+      } else {
+        const maxDistance = 200;
+        rightElbowScore = Math.max(0, 1.0 - ((rightWristToAttackerElbow - 100) / maxDistance));
+      }
+    }
+    
+    // Lấy điểm trung bình của cả hai cổ tay
+    if (leftElbowScore > 0 && rightElbowScore > 0) {
+      elbowCuttingScore = (leftElbowScore + rightElbowScore) / 2; // Trung bình của cả hai
+    } else if (leftElbowScore > 0) {
+      elbowCuttingScore = leftElbowScore; // Chỉ có cổ tay trái
+    } else if (rightElbowScore > 0) {
+      elbowCuttingScore = rightElbowScore; // Chỉ có cổ tay phải
+    }
+    
+    const isCuttingAtAttackerElbow = elbowCuttingScore > 0.8; // Coi là cắt nếu điểm > 0.8
     
     relativeMetrics = {
       defenderToAttackerDistance,
       leftWristToAttackerWrist,
       rightWristToAttackerWrist,
+      leftWristScore,
+      rightWristScore,
+      wristToWristScore,
       isHoldingAttackerWrist,
       leftAnkleToAttackerAnkle,
       rightAnkleToAttackerAnkle,
+      ankleDistanceScore,
       isLegOnAttackerLeg,
       leftWristToAttackerElbow,
       rightWristToAttackerElbow,
+      leftElbowScore,
+      rightElbowScore,
+      elbowCuttingScore,
       isCuttingAtAttackerElbow
     };
     
-    // Thêm độ tin cậy tương đối
-    if (isHoldingAttackerWrist) confidence += 0.2;
-    if (isLegOnAttackerLeg) confidence += 0.2;
-    if (isCuttingAtAttackerElbow) confidence += 0.2;
+    // Tính toán độ tin cậy dựa trên điểm số tương đối với kẻ tấn công
+    confidence += wristToWristScore * 0.3; // 30% trọng số cho nắm cổ tay
+    confidence += ankleDistanceScore * 0.3; // 30% trọng số cho đè chân
+    confidence += elbowCuttingScore * 0.4; // 40% trọng số cho cắt khuỷu tay
     
     relativeFeedback = {
+      wristToWristScore: `Nắm cổ tay: ${(wristToWristScore * 100).toFixed(0)}% (mục tiêu: 0-70px)`,
+      leftWristScore: `Cổ tay trái: ${(leftWristScore * 100).toFixed(0)}% (mục tiêu: 0-70px)`,
+      rightWristScore: `Cổ tay phải: ${(rightWristScore * 100).toFixed(0)}% (mục tiêu: 0-70px)`,
+      ankleDistanceScore: `Đè chân: ${(ankleDistanceScore * 100).toFixed(0)}% (mục tiêu: 0-70px)`,
+      elbowCuttingScore: `Cắt khuỷu tay: ${(elbowCuttingScore * 100).toFixed(0)}% (mục tiêu: 0-100px)`,
+      leftElbowScore: `Cổ tay trái cắt: ${(leftElbowScore * 100).toFixed(0)}% (mục tiêu: 0-100px)`,
+      rightElbowScore: `Cổ tay phải cắt: ${(rightElbowScore * 100).toFixed(0)}% (mục tiêu: 0-100px)`,
       isHoldingAttackerWrist: isHoldingAttackerWrist ? "✅ Nắm cổ tay đối thủ đúng" : "❌ Cần nắm cổ tay đối thủ gần hơn",
       isLegOnAttackerLeg: isLegOnAttackerLeg ? "✅ Chân đè lên chân đối thủ đúng" : "❌ Cần đè chân lên chân đối thủ",
       isCuttingAtAttackerElbow: isCuttingAtAttackerElbow ? "✅ Tay cắt ở khuỷu tay đối thủ đúng" : "❌ Cần cắt tay ở khuỷu tay đối thủ"
